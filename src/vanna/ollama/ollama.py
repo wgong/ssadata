@@ -77,12 +77,12 @@ class Ollama(VannaBase):
     if sql:
       # self.log(
       #   f"Output from LLM: {llm_response} \nExtracted SQL: {sql.group(1)}")
-      self.log(f"Extracted SQL: {sql.group(1)}")
+      self.log(f"Extracted SQL:\n {sql.group(1)}")
       return sql.group(1).replace("```", "")
     elif select_with:
       # self.log(
       #   f"Output from LLM: {llm_response} \nExtracted SQL: {select_with.group(0)}")
-      self.log(f"Extracted SQL: {select_with.group(0)}")
+      self.log(f"Extracted SQL:\n {select_with.group(0)}")
       return select_with.group(0)
     else:
       return llm_response

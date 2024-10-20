@@ -69,7 +69,7 @@ import sqlparse
 
 from ..exceptions import DependencyError, ImproperlyConfigured, ValidationError
 from ..types import TrainingPlan, TrainingPlanItem
-from ..utils import validate_config_path
+from ..utils import validate_config_path, strip_brackets
 try:
     from IPython.display import display, Code, Image
     HAS_IPYTHON = True
@@ -81,7 +81,7 @@ class AskResult(NamedTuple):
     sql: Optional[str]
     df: Optional[pd.DataFrame]
     fig: Optional[Figure.Figure]
-    error: Optional[str]
+    err_msg: Optional[str]
 
 class LogTag:
     ERROR = "[ERROR]"
@@ -90,13 +90,14 @@ class LogTag:
     ERROR_DB = "[ERROR-DB]"
     ERROR_VIZ = "[ERROR-VIZ]"
     SQL_PROMPT = "SQL PROMPT"
-    SHOW_DATA = "<DF>"
+    SHOW_DATA = "<DataFrame>"
     SHOW_SQL = "<SQL>"
-    SHOW_PYTHON = "<PYTHON>"
-    SHOW_VIZ = "<VIZ>"
+    SHOW_PYTHON = "<Python>"
+    SHOW_VIZ = "<Chart>"
     LLM_RESPONSE = "LLM RESPONSE"
     RUN_INTER_SQL = "INTERMEDIATE SQL"
     EXTRACTED_SQL = "EXTRACTED SQL"
+    RETRY = "RETRY"
     
 def remove_sql_noise(sql):
     if 'intermediate_sql' in sql or 'final_sql' in sql:
@@ -1710,7 +1711,7 @@ class VannaBase(ABC):
         num_retry=2,
         separator=80*'=',
         tag_id=None,
-        sleep_sec=2,
+        sleep_sec=1,
     ) -> AskResult:
         """
         Enhanced ask() with adaptive retry prompting 
@@ -1919,7 +1920,7 @@ class VannaBase(ABC):
 
         if ddl:
             print("Adding ddl:", ddl)
-            return self.add_ddl(ddl)
+            return self.add_ddl(strip_brackets(ddl))
 
         if plan:
             for item in plan._plan:
