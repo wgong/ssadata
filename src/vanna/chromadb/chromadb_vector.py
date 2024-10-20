@@ -175,6 +175,30 @@ class ChromaDB_VectorStore(VannaBase):
         else:
             return False
 
+    def remove_collections(self, collection_name=None, ACCEPTED_TYPES = ["sql", "ddl", "documentation"]) -> bool:
+        """
+        This function is a wrapper to delete multiple collections
+        """
+        if not collection_name:
+            collections = ACCEPTED_TYPES
+        elif isinstance(collection_name, str):
+            collections = [collection_name]
+        elif isinstance(collection_name, list):
+            collections = collection_name
+        else:
+            print(f"\t{collection_name} is unknown: Skipped")
+            return False
+
+        for c in collections:
+            if not c in ACCEPTED_TYPES:
+                print(f"\t{c} is unknown: Skipped")
+                continue
+                
+            self.remove_collection(c)
+
+        return True
+
+
     def remove_collection(self, collection_name: str) -> bool:
         """
         This function can reset the collection to empty state.

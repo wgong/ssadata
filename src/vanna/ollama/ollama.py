@@ -75,29 +75,34 @@ class Ollama(VannaBase):
                             llm_response,
                             re.IGNORECASE | re.DOTALL)
     if sql:
-      self.log(
-        f"Output from LLM: {llm_response} \nExtracted SQL: {sql.group(1)}")
+      # self.log(
+      #   f"Output from LLM: {llm_response} \nExtracted SQL: {sql.group(1)}")
+      self.log(f"Extracted SQL: {sql.group(1)}")
       return sql.group(1).replace("```", "")
     elif select_with:
-      self.log(
-        f"Output from LLM: {llm_response} \nExtracted SQL: {select_with.group(0)}")
+      # self.log(
+      #   f"Output from LLM: {llm_response} \nExtracted SQL: {select_with.group(0)}")
+      self.log(f"Extracted SQL: {select_with.group(0)}")
       return select_with.group(0)
     else:
       return llm_response
 
   def submit_prompt(self, prompt, **kwargs) -> str:
+    FLAG_LOG = False
     self.log(
       f"Ollama parameters:\n"
       f"model={self.model},\n"
       f"options={self.ollama_options},\n"
       f"keep_alive={self.keep_alive}")
-    self.log(f"Prompt Content:\n{json.dumps(prompt)}")
+    if FLAG_LOG:
+      self.log(f"Prompt Content:\n{json.dumps(prompt)}")
     response_dict = self.ollama_client.chat(model=self.model,
                                             messages=prompt,
                                             stream=False,
                                             options=self.ollama_options,
                                             keep_alive=self.keep_alive)
 
-    self.log(f"Ollama Response:\n{str(response_dict)}")
+    if FLAG_LOG:
+      self.log(f"Ollama Response:\n{str(response_dict)}")
 
     return response_dict['message']['content']
