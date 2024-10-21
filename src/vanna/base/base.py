@@ -88,6 +88,7 @@ class LogTag:
     ERROR_INPUT = "[ERROR-IN]"
     ERROR_SQL = "[ERROR-SQL]"
     ERROR_DB = "[ERROR-DB]"
+    ERROR_DF = "[ERROR-DF]"
     ERROR_VIZ = "[ERROR-VIZ]"
     SQL_PROMPT = "SQL PROMPT"
     SHOW_DATA = "<DataFrame>"
@@ -103,6 +104,16 @@ def remove_sql_noise(sql):
     if 'intermediate_sql' in sql or 'final_sql' in sql:
         sql = sql.replace('intermediate_sql', '').replace('final_sql', '')
     return sql 
+
+def keep_latest_messages(prompt_json):
+    latest_messages = {}
+    
+    for message in reversed(prompt_json):
+        role = message['role']
+        if role not in latest_messages:
+            latest_messages[role] = message
+    
+    return [latest_messages[role] for role in ['system', 'assistant', 'user'] if role in latest_messages]
 
 class VannaBase(ABC):
     def __init__(self, config=None):
@@ -173,6 +184,8 @@ class VannaBase(ABC):
             doc_list=doc_list,
             **kwargs,
         )
+
+        prompt = keep_latest_messages(prompt)
         self.log(title=LogTag.SQL_PROMPT, message=prompt)
         llm_response = self.submit_prompt(prompt, **kwargs)
         self.log(title=LogTag.LLM_RESPONSE, message=llm_response)
@@ -1707,7 +1720,7 @@ class VannaBase(ABC):
         print_results: bool = True,
         auto_train: bool = True,
         visualize: bool = True,  # if False, will not generate plotly code
-        allow_llm_to_see_data: bool = False,   
+        allow_llm_to_see_data: bool = True,   
         num_retry=2,
         separator=80*'=',
         tag_id=None,
@@ -1837,7 +1850,7 @@ class VannaBase(ABC):
         if df is not None and not df.empty and len(df) > 0 and auto_train:
             self.add_question_sql(question=question, sql=sql)
         else:
-            err_msg = f"{LogTag.ERROR} Invalid dataframe"
+            err_msg = f"{LogTag.ERROR_DF} Invalid dataframe"
             return AskResult(sql, None, None, err_msg)
         
         # Only generate plotly code if visualize is True and df has data
