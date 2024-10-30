@@ -1,1 +1,1 @@
-from .bedrock_converse import Bedrock_Converse
+from .bedrock_converse import Bedrock_Converse, Bedrock_Chat
