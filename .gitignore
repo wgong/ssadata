@@ -1,3 +1,7 @@
+**/*u8hi*
+**/*u1gwg*
+
+
 build
 **.egg-info
 venv
@@ -20,4 +24,4 @@ chroma.sqlite3
 .coverage.*
 milvus.db
 .milvus.db.lock
-**/*u1gwg*
+

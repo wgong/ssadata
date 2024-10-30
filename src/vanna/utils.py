@@ -75,3 +75,17 @@ def deterministic_uuid(content: Union[str, bytes]) -> str:
     content_uuid = str(uuid.uuid5(namespace, hash_hex))
 
     return content_uuid
+
+def strip_brackets(ddl):
+    """
+    This function removes square brackets from table and column names in a DDL script.
+    
+    Args:
+        ddl (str): The DDL script containing square brackets.
+    
+    Returns:
+        str: The DDL script with square brackets removed.
+    """
+    # Use regular expressions to match and replace square brackets
+    pattern = r"\[([^\]]+)]"  # Match any character except ] within square brackets
+    return re.sub(pattern, r"\1", ddl)
