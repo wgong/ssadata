@@ -68,6 +68,17 @@ from ..exceptions import DependencyError, ImproperlyConfigured, ValidationError
 from ..types import TrainingPlan, TrainingPlanItem
 from ..utils import validate_config_path
 
+try:
+    from IPython.display import display, Code, Image
+    HAS_IPYTHON = True
+except ImportError:
+    HAS_IPYTHON = False
+
+STR_SQL_PROMPT = "SQL Prompt"
+STR_LLM_RESPONSE = "LLM Response"
+STR_RUN_INTER_SQL = "Running Intermediate SQL"
+STR_FINAL_PROMPT = "Final SQL Prompt"
+STR_EXTRACTED_SQL = "Extracted SQL"
 
 class VannaBase(ABC):
     def __init__(self, config=None):
@@ -81,8 +92,11 @@ class VannaBase(ABC):
         self.language = self.config.get("language", None)
         self.max_tokens = self.config.get("max_tokens", 14000)
 
-    def log(self, message: str, title: str = "Info"):
-        print(f"{title}: {message}")
+    def log(self, message: str, title: str = ""):
+        if title:
+            print(f"\n[( {title} )]\n{message}")
+        else:
+            print(f"\n{message}")
 
     def _response_language(self) -> str:
         if self.language is None:
@@ -132,9 +146,9 @@ class VannaBase(ABC):
             doc_list=doc_list,
             **kwargs,
         )
-        self.log(title="SQL Prompt", message=prompt)
+        self.log(title=STR_SQL_PROMPT, message=prompt)
         llm_response = self.submit_prompt(prompt, **kwargs)
-        self.log(title="LLM Response", message=llm_response)
+        self.log(title=STR_LLM_RESPONSE, message=llm_response)
 
         if 'intermediate_sql' in llm_response:
             if not allow_llm_to_see_data:
@@ -144,8 +158,12 @@ class VannaBase(ABC):
                 intermediate_sql = self.extract_sql(llm_response)
 
                 try:
-                    self.log(title="Running Intermediate SQL", message=intermediate_sql)
-                    df = self.run_sql(intermediate_sql)
+                    self.log(title=STR_RUN_INTER_SQL, message=intermediate_sql)
+                    if 'intermediate_sql' in intermediate_sql:
+                        extracted_sql = intermediate_sql.replace('intermediate_sql', '')
+                    else:
+                        extracted_sql = intermediate_sql
+                    df = self.run_sql(extracted_sql)
 
                     prompt = self.get_sql_prompt(
                         initial_prompt=initial_prompt,
@@ -155,9 +173,9 @@ class VannaBase(ABC):
                         doc_list=doc_list+[f"The following is a pandas DataFrame with the results of the intermediate SQL query {intermediate_sql}: \n" + df.to_markdown()],
                         **kwargs,
                     )
-                    self.log(title="Final SQL Prompt", message=prompt)
+                    self.log(title=STR_FINAL_PROMPT, message=prompt)
                     llm_response = self.submit_prompt(prompt, **kwargs)
-                    self.log(title="LLM Response", message=llm_response)
+                    self.log(title=STR_LLM_RESPONSE, message=llm_response)
                 except Exception as e:
                     return f"Error running intermediate SQL: {e}"
 
@@ -185,27 +203,27 @@ class VannaBase(ABC):
         sqls = re.findall(r"\bWITH\b .*?;", llm_response, re.DOTALL)
         if sqls:
             sql = sqls[-1]
-            self.log(title="Extracted SQL", message=f"{sql}")
+            self.log(title=STR_EXTRACTED_SQL, message=f"{sql}")
             return sql
 
         # If the llm_response is not markdown formatted, extract last sql by finding select and ; in the response
         sqls = re.findall(r"SELECT.*?;", llm_response, re.DOTALL)
         if sqls:
             sql = sqls[-1]
-            self.log(title="Extracted SQL", message=f"{sql}")
+            self.log(title=STR_EXTRACTED_SQL, message=f"{sql}")
             return sql
 
         # If the llm_response contains a markdown code block, with or without the sql tag, extract the last sql from it
         sqls = re.findall(r"```sql\n(.*)```", llm_response, re.DOTALL)
         if sqls:
             sql = sqls[-1]
-            self.log(title="Extracted SQL", message=f"{sql}")
+            self.log(title=STR_EXTRACTED_SQL, message=f"{sql}")
             return sql
 
         sqls = re.findall(r"```(.*)```", llm_response, re.DOTALL)
         if sqls:
             sql = sqls[-1]
-            self.log(title="Extracted SQL", message=f"{sql}")
+            self.log(title=STR_EXTRACTED_SQL, message=f"{sql}")
             return sql
 
         return llm_response
@@ -1672,6 +1690,7 @@ class VannaBase(ABC):
             Union[str, None],
             Union[pd.DataFrame, None],
             Union[plotly.graph_objs.Figure, None],
+            Union[str, None],
         ],
         None,
     ]:
@@ -1683,6 +1702,8 @@ class VannaBase(ABC):
 
         Ask Vanna.AI a question and get the SQL query that answers it.
 
+        [u1gwg] add error msg for retry 
+
         Args:
             question (str): The question to ask.
             print_results (bool): Whether to print the results of the SQL query.
@@ -1690,88 +1711,114 @@ class VannaBase(ABC):
             visualize (bool): Whether to generate plotly code and display the plotly figure.
 
         Returns:
-            Tuple[str, pd.DataFrame, plotly.graph_objs.Figure]: The SQL query, the results of the SQL query, and the plotly figure.
+            a tuple: 
+                - The SQL query (str)
+                - df of the SQL query (pd.DataFrame)
+                - plotly figure (plotly.graph_objs.Figure)
+                - error msg (str)
         """
+        sql = None
+        df = None
+        fig = None
+        err_msg = None
+        if not question:
+            # question = input("Enter a question: ")
+            err_msg = "[ERROR-IN] Prompt question is missing"
+            return None, None, None, err_msg
 
-        if question is None:
-            question = input("Enter a question: ")
-
+        # ====================
+        # Generate SQL
+        # ====================
         try:
             sql = self.generate_sql(question=question, allow_llm_to_see_data=allow_llm_to_see_data)
         except Exception as e:
-            print(e)
-            return None, None, None
+            err_msg = f"[ERROR-SQL] Failed to generate SQL for prompt: {question} with the following exception: \n{str(e)}"
+            print(err_msg)
+            return None, None, None, err_msg
 
-        if print_results:
+        if 'intermediate_sql' in sql:
+            sql = sql.replace('intermediate_sql', '')
+
+        if not sql.strip().lower().startswith("select") and \
+            not sql.strip().lower().startswith("with"):
+            err_msg = f"[ERROR-SQL] the generated SQL : {sql}\n does not starts with ('select','with')"
+            return sql, None, None, err_msg
+
+        if HAS_IPYTHON and print_results:
             try:
-                Code = __import__("IPython.display", fromList=["Code"]).Code
-                display(Code(sql))
+                self.log(title="SQL", message="generated SQL statement")
+                display(Code(sql, language='sql'))
             except Exception as e:
-                print(sql)
+                err_msg = f"[ERROR] Failed to display SQL code: {sql} with the following exception: \n{str(e)}"
+                print(err_msg)
+                # return sql, None, None, err_msg
 
+        # ====================
+        # Execute SQL
+        # ====================
         if self.run_sql_is_set is False:
-            print(
-                "If you want to run the SQL query, connect to a database first."
-            )
-
-            if print_results:
-                return None
-            else:
-                return sql, None, None
+            err_msg = "[ERROR] If you want to run the SQL query, connect to a database first. See here: https://vanna.ai/docs/databases.html"
+            print(err_msg)
+            return sql, None, None, err_msg
 
         try:
             df = self.run_sql(sql)
-
-            if print_results:
-                try:
-                    display = __import__(
-                        "IPython.display", fromList=["display"]
-                    ).display
-                    display(df)
-                except Exception as e:
-                    print(df)
-
-            if len(df) > 0 and auto_train:
-                self.add_question_sql(question=question, sql=sql)
-            # Only generate plotly code if visualize is True
-            if visualize:
-                try:
-                    plotly_code = self.generate_plotly_code(
-                        question=question,
-                        sql=sql,
-                        df_metadata=f"Running df.dtypes gives:\n {df.dtypes}",
-                    )
-                    fig = self.get_plotly_figure(plotly_code=plotly_code, df=df)
-                    if print_results:
-                        try:
-                            display = __import__(
-                                "IPython.display", fromlist=["display"]
-                            ).display
-                            Image = __import__(
-                                "IPython.display", fromlist=["Image"]
-                            ).Image
-                            img_bytes = fig.to_image(format="png", scale=2)
-                            display(Image(img_bytes))
-                        except Exception as e:
-                            fig.show()
-                except Exception as e:
-                    # Print stack trace
-                    traceback.print_exc()
-                    print("Couldn't run plotly code: ", e)
-                    if print_results:
-                        return None
-                    else:
-                        return sql, df, None
-            else:
-                return sql, df, None
-
         except Exception as e:
-            print("Couldn't run sql: ", e)
-            if print_results:
-                return None
-            else:
-                return sql, None, None
-        return sql, df, fig
+            err_msg = f"[ERROR-DB] Failed to execute SQL: {sql}\n {str(e)}"
+            return sql, None, None, err_msg
+
+        if HAS_IPYTHON and print_results:
+            try:
+                self.log(title="DATA", message="queried data frame")
+                display(df)
+            except Exception as e:
+                print(str(e))
+
+        if df is not None and not df.empty and len(df) > 0 and auto_train:
+            self.add_question_sql(question=question, sql=sql)
+        else:
+            err_msg = f"[ERROR] Invalid dataframe"
+            return sql, None, None, err_msg
+        
+        # Only generate plotly code if visualize is True and df has data
+        if not visualize:
+            return sql, df, None, None                
+
+        # ====================
+        # Visualize dataframe
+        # ====================
+        err_msg = None
+        try:
+            plotly_code = self.generate_plotly_code(
+                question=question,
+                sql=sql,
+                df_metadata=f"Running df.dtypes gives:\n {df.dtypes}",
+            )
+            fig = self.get_plotly_figure(plotly_code=plotly_code, df=df)
+
+            if HAS_IPYTHON and print_results:
+                try:
+                    # display = __import__(
+                    #     "IPython.display", fromlist=["display"]
+                    # ).display
+
+                    # Image = __import__(
+                    #     "IPython.display", fromlist=["Image"]
+                    # ).Image
+                    self.log(title="PYTHON", message="generated Plotly code")
+                    display(Code(plotly_code, language='python'))
+
+                    img_bytes = fig.to_image(format="png", scale=2)
+
+                    display(Image(img_bytes))
+                except Exception as e:
+                    fig.show()
+        except Exception as e:
+            # # Print stack trace
+            # traceback.print_exc()
+            err_msg = f"[ERROR-VIZ] Failed to visualize df with plotly code:\n str(e)"
+
+        return sql, df, fig, err_msg
 
     def train(
         self,
