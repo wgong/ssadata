@@ -154,7 +154,7 @@ class VannaBase(ABC):
 
         return f"Respond in the {self.language} language."
 
-    def generate_sql(self, question: str, allow_llm_to_see_data=False, print_prompt=True, print_response=True, **kwargs) -> str:
+    def generate_sql(self, question: str, allow_llm_to_see_data=False, print_prompt=True, print_response=True, use_latest_message=False, **kwargs) -> str:
         """
         Example:
         ```python
@@ -197,7 +197,8 @@ class VannaBase(ABC):
             **kwargs,
         )
 
-        prompt = keep_latest_messages(prompt)
+        if use_latest_message:
+            prompt = keep_latest_messages(prompt)
         self.log(title=LogTag.SQL_PROMPT, message=prompt, off_flag=print_prompt)
         llm_response = self.submit_prompt(prompt, print_prompt=print_prompt, print_response=print_response, **kwargs)
         self.log(title=LogTag.LLM_RESPONSE, message=llm_response, off_flag=print_response)
@@ -920,7 +921,7 @@ class VannaBase(ABC):
         def run_sql_sqlite(sql: str):
             return pd.read_sql_query(sql, conn)
 
-        self.dialect = "SQLite"
+        self.dialect = "SQLite Database"
         self.run_sql = run_sql_sqlite
         self.run_sql_is_set = True
 
@@ -1007,7 +1008,7 @@ class VannaBase(ABC):
         except psycopg2.Error as e:
             raise ValidationError(e)
 
-        def connect_to_db():
+        def psycopg2_connect():
             return psycopg2.connect(host=host, dbname=dbname,
                         user=user, password=password, port=port, **kwargs)
 
@@ -1015,7 +1016,7 @@ class VannaBase(ABC):
         def run_sql_postgres(sql: str) -> Union[pd.DataFrame, None]:
             conn = None
             try:
-                conn = connect_to_db()  # Initial connection attempt
+                conn = psycopg2_connect()  # Initial connection attempt
                 cs = conn.cursor()
                 cs.execute(sql)
                 results = cs.fetchall()
@@ -1028,7 +1029,7 @@ class VannaBase(ABC):
                 # Attempt to reconnect and retry the operation
                 if conn:
                     conn.close()  # Ensure any existing connection is closed
-                conn = connect_to_db()
+                conn = psycopg2_connect()
                 cs = conn.cursor()
                 cs.execute(sql)
                 results = cs.fetchall()
@@ -1046,7 +1047,7 @@ class VannaBase(ABC):
                         conn.rollback()
                         raise e
 
-        self.dialect = "PostgreSQL"
+        self.dialect = "PostgreSQL Database"
         self.run_sql_is_set = True
         self.run_sql = run_sql_postgres
 
@@ -1136,6 +1137,7 @@ class VannaBase(ABC):
                     conn.rollback()
                     raise e
 
+        self.dialect = "MySQL Database"
         self.run_sql_is_set = True
         self.run_sql = run_sql_mysql
 
@@ -1215,6 +1217,7 @@ class VannaBase(ABC):
                 except Exception as e:
                     raise e
 
+        self.dialect = "ClickHouse Database"
         self.run_sql_is_set = True
         self.run_sql = run_sql_clickhouse
 
@@ -1306,6 +1309,7 @@ class VannaBase(ABC):
                     conn.rollback()
                     raise e
 
+        self.dialect = "Oracle Database"
         self.run_sql_is_set = True
         self.run_sql = run_sql_oracle
 
@@ -1608,6 +1612,7 @@ class VannaBase(ABC):
             print(e)
             raise e
 
+      self.dialect = "Presto Database"
       self.run_sql_is_set = True
       self.run_sql = run_sql_presto
 
@@ -1705,6 +1710,7 @@ class VannaBase(ABC):
             print(e)
             raise e
 
+      self.dialect = "Hive SQL Database"
       self.run_sql_is_set = True
       self.run_sql = run_sql_hive
 
@@ -1738,6 +1744,7 @@ class VannaBase(ABC):
         print_response: bool = True,  # show response
         print_results: bool = True,   # show results
         auto_train: bool = True,
+        use_latest_message: bool = False,
         separator: str = 80*'=',
         tag_id: str = "",
         sleep_sec: int = 1,
@@ -1791,6 +1798,7 @@ class VannaBase(ABC):
         sql_row_limit: int = 20,   # control number of rows returned: -1 for no limit
         print_prompt: bool = True,    # show prompt
         print_response: bool = True,  # show response
+        use_latest_message: bool = False,
     ) -> AskResult:
         """
         **Example:**
@@ -1828,7 +1836,7 @@ class VannaBase(ABC):
         # Generate SQL
         # ====================
         try:
-            sql = self.generate_sql(question=question, allow_llm_to_see_data=allow_llm_to_see_data, print_prompt=print_prompt, print_response=print_response)
+            sql = self.generate_sql(question=question, allow_llm_to_see_data=allow_llm_to_see_data, print_prompt=print_prompt, print_response=print_response, use_latest_message=use_latest_message)
         except Exception as e:
             err_msg = f"{LogTag.ERROR_SQL} Failed to generate SQL for prompt: {question} with the following exception: \n{str(e)}"
             print(err_msg)
@@ -1910,6 +1918,7 @@ class VannaBase(ABC):
                     display(Code(plotly_code, language='python'))
 
                     img_bytes = fig.to_image(format="png", scale=2)
+                    
                     display(Image(img_bytes))
                 except Exception as e:
                     fig.show()
