@@ -144,8 +144,7 @@ class Bedrock_Chat(VannaBase):
                 system_prompt = prompt_message["content"]
             elif role == "user":
                 user_query = prompt_message["content"]
-            else:
-                raise Exception(f"Invalid role: '{role}'")
+
 
         body = json.dums({
             "anthropic_version": "bedrock-2023-05-31",

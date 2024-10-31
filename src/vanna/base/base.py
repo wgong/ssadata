@@ -181,6 +181,8 @@ class VannaBase(ABC):
         Returns:
             str: The SQL query that answers the question.
         """
+        print_prompt = kwargs.get("print_prompt",True)
+        print_response = kwargs.get("print_response",True)
         if self.config is not None:
             initial_prompt = self.config.get("initial_prompt", None)
         else:
@@ -198,9 +200,9 @@ class VannaBase(ABC):
         )
 
         prompt = keep_latest_messages(prompt)
-        self.log(title=LogTag.SQL_PROMPT, message=prompt)
+        self.log(title=LogTag.SQL_PROMPT, message=prompt, off_flag=print_prompt)
         llm_response = self.submit_prompt(prompt, **kwargs)
-        self.log(title=LogTag.LLM_RESPONSE, message=llm_response)
+        self.log(title=LogTag.LLM_RESPONSE, message=llm_response, off_flag=print_response)
 
         if 'intermediate_sql' in llm_response:
             if not allow_llm_to_see_data:
@@ -210,7 +212,7 @@ class VannaBase(ABC):
                 intermediate_sql = self.extract_sql(llm_response)
 
                 try:
-                    self.log(title=LogTag.RUN_INTER_SQL, message=intermediate_sql)
+                    self.log(title=LogTag.RUN_INTER_SQL, message=intermediate_sql, off_flag=print_response)
                     df = self.run_sql(intermediate_sql)
 
                     prompt = self.get_sql_prompt(
@@ -221,9 +223,9 @@ class VannaBase(ABC):
                         doc_list=doc_list+[f"The following is a pandas DataFrame with the results of the intermediate SQL query {intermediate_sql}: \n" + df.to_markdown()],
                         **kwargs,
                     )
-                    self.log(title=LogTag.SQL_PROMPT, message=prompt)
+                    self.log(title=LogTag.SQL_PROMPT, message=prompt, off_flag=print_prompt)
                     llm_response = self.submit_prompt(prompt, **kwargs)
-                    self.log(title=LogTag.LLM_RESPONSE, message=llm_response)
+                    self.log(title=LogTag.LLM_RESPONSE, message=llm_response, off_flag=print_response)
                 except Exception as e:
                     return f"Error running intermediate SQL: {e}"
 
@@ -1493,6 +1495,7 @@ class VannaBase(ABC):
         self.dialect = "T-SQL / Microsoft SQL Server"
         self.run_sql = run_sql_mssql
         self.run_sql_is_set = True
+
     def connect_to_presto(
         self,
         host: str,
@@ -1729,49 +1732,56 @@ class VannaBase(ABC):
     def ask_adaptive(
         self,
         question: Union[str, None] = None,
-        print_results: bool = True,
+        retry_num: int = 2,
+        skip_chart: bool = False,   # control whether to generate Plotly code
+        skip_run_sql: bool = False, # control whether to execute generated SQL
+        sql_row_limit: int = 100,   # control number of rows returned: -1 for no limit
+        print_prompt: bool = True,    # show prompt
+        print_response: bool = True,  # show response
+        print_results: bool = True,   # show results
         auto_train: bool = True,
-        visualize: bool = True,  # if False, will not generate plotly code
-        allow_llm_to_see_data: bool = True,
-        sql_return_row_limit: int = 100,   # control number of rows returned: -1 for no limit
-        num_retry: int = 2,
         separator: str = 80*'=',
         tag_id: str = "",
         sleep_sec: int = 1,
     ) -> AskResult:
         """
-        Enhanced ask() with adaptive retry prompting 
+        Enhanced adaptive retry prompting : 
         when response has error, revise prompt by asking to fix
         """
+        # translate flags
+        visualize = not skip_chart 
+        allow_llm_to_see_data = not skip_run_sql
+
         tag = f"- {tag_id}" if tag_id else ""
         self.log(f"\n{separator}\n# QUESTION {tag}:  {question}\n{separator}\n")
-        res = self.ask(question, print_results, auto_train, visualize, allow_llm_to_see_data, allow_llm_to_see_data)
-        if not res.err_msg or (LogTag.ERROR_SQL not in res.err_msg) and (LogTag.ERROR_DB not in res.err_msg):
-            return res
+
+        answer = self.ask(question, print_results, auto_train, visualize, allow_llm_to_see_data, sql_row_limit, print_prompt, print_response)
+        if not answer.err_msg or (LogTag.ERROR_SQL not in answer.err_msg) and (LogTag.ERROR_DB not in answer.err_msg):
+            return answer
     
-        is_sys_err = res.err_msg and "an unknown error was encountered while running the model" in res.err_msg
+        is_sys_err = answer.err_msg and "an unknown error was encountered while running the model" in answer.err_msg
         if is_sys_err:
             # re-prompt
-            res = self.ask(question, print_results, auto_train, visualize, allow_llm_to_see_data, allow_llm_to_see_data)
-            if not res.err_msg or (LogTag.ERROR_SQL not in res.err_msg) and (LogTag.ERROR_DB not in res.err_msg):
-                return res
+            answer = self.ask(question, print_results, auto_train, visualize, allow_llm_to_see_data, sql_row_limit, print_prompt, print_response)
+            if not answer.err_msg or (LogTag.ERROR_SQL not in answer.err_msg) and (LogTag.ERROR_DB not in answer.err_msg):
+                return answer
 
         # re-try
-        for i_retry in range(num_retry):
+        for i_retry in range(retry_num):
             self.log(title=LogTag.RETRY, message=f"***** {i_retry+1} *****")
             question = f"""
                 For this question: {question}, 
-                your generated SQL statement: {res.sql} results in the following exception: {res.err_msg} .
+                your generated SQL statement: {answer.sql} results in the following exception: {answer.err_msg} .
                 Can you please fix the error and re-generate the SQL statement?
             """
             
-            res = self.ask(question, print_results, auto_train, visualize, allow_llm_to_see_data, allow_llm_to_see_data)
-            if not res.err_msg or (LogTag.ERROR_SQL not in res.err_msg) and (LogTag.ERROR_DB not in res.err_msg):
+            answer = self.ask(question, print_results, auto_train, visualize, allow_llm_to_see_data, sql_row_limit, print_prompt, print_response)
+            if not answer.err_msg or (LogTag.ERROR_SQL not in answer.err_msg) and (LogTag.ERROR_DB not in answer.err_msg):
                 break
 
             time.sleep(sleep_sec)
 
-        return res
+        return answer
 
     def ask(
         self,
@@ -1780,7 +1790,9 @@ class VannaBase(ABC):
         auto_train: bool = True,
         visualize: bool = True,  # if False, will not generate plotly code
         allow_llm_to_see_data: bool = True,
-        sql_return_row_limit: int = 100,   # control number of rows returned: -1 for no limit
+        sql_row_limit: int = 100,   # control number of rows returned: -1 for no limit
+        print_prompt: bool = True,    # show prompt
+        print_response: bool = True,  # show response
     ) -> AskResult:
         """
         **Example:**
@@ -1818,7 +1830,7 @@ class VannaBase(ABC):
         # Generate SQL
         # ====================
         try:
-            sql = self.generate_sql(question=question, allow_llm_to_see_data=allow_llm_to_see_data)
+            sql = self.generate_sql(question=question, allow_llm_to_see_data=allow_llm_to_see_data, print_prompt=print_prompt, print_response=print_response)
         except Exception as e:
             err_msg = f"{LogTag.ERROR_SQL} Failed to generate SQL for prompt: {question} with the following exception: \n{str(e)}"
             print(err_msg)
@@ -1849,10 +1861,11 @@ class VannaBase(ABC):
             return AskResult(sql, None, None, err_msg)
 
         # append limit-clause 
-        if sql_return_row_limit > 0:
-            if sql.strip()[-1] == ";":
+        sql = sql.strip()
+        if "limit" not in sql.lower() and sql_row_limit > 0:
+            if sql[-1] == ";":
                 sql = sql[:-1]  # remove last ";" if present
-            sql += f" LIMIT {str(sql_return_row_limit)}"
+            sql += f" LIMIT {sql_row_limit}"
 
         try:
             df = self.run_sql(sql)
@@ -1899,7 +1912,6 @@ class VannaBase(ABC):
                     display(Code(plotly_code, language='python'))
 
                     img_bytes = fig.to_image(format="png", scale=2)
-
                     display(Image(img_bytes))
                 except Exception as e:
                     fig.show()
