@@ -89,13 +89,14 @@ class Ollama(VannaBase):
       return llm_response
 
   def submit_prompt(self, prompt, **kwargs) -> str:
-    SHOW_LOG = kwargs.get("SHOW_LOG",False)
+    print_prompt = kwargs.get("print_prompt",False)
+    print_response = kwargs.get("print_response",False)
     self.log(
       f"Ollama parameters:\n"
       f"model={self.model},\n"
       f"options={self.ollama_options},\n"
       f"keep_alive={self.keep_alive}")
-    if SHOW_LOG:
+    if print_prompt:
       self.log(f"Prompt Content:\n{json.dumps(prompt)}")
     response_dict = self.ollama_client.chat(model=self.model,
                                             messages=prompt,
@@ -103,7 +104,7 @@ class Ollama(VannaBase):
                                             options=self.ollama_options,
                                             keep_alive=self.keep_alive)
 
-    if SHOW_LOG:
+    if print_response:
       self.log(f"Ollama Response:\n{str(response_dict)}")
 
     return response_dict['message']['content']

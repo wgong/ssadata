@@ -154,7 +154,7 @@ class VannaBase(ABC):
 
         return f"Respond in the {self.language} language."
 
-    def generate_sql(self, question: str, allow_llm_to_see_data=False, **kwargs) -> str:
+    def generate_sql(self, question: str, allow_llm_to_see_data=False, print_prompt=True, print_response=True, **kwargs) -> str:
         """
         Example:
         ```python
@@ -181,8 +181,6 @@ class VannaBase(ABC):
         Returns:
             str: The SQL query that answers the question.
         """
-        print_prompt = kwargs.get("print_prompt",True)
-        print_response = kwargs.get("print_response",True)
         if self.config is not None:
             initial_prompt = self.config.get("initial_prompt", None)
         else:
@@ -201,7 +199,7 @@ class VannaBase(ABC):
 
         prompt = keep_latest_messages(prompt)
         self.log(title=LogTag.SQL_PROMPT, message=prompt, off_flag=print_prompt)
-        llm_response = self.submit_prompt(prompt, **kwargs)
+        llm_response = self.submit_prompt(prompt, print_prompt=print_prompt, print_response=print_response, **kwargs)
         self.log(title=LogTag.LLM_RESPONSE, message=llm_response, off_flag=print_response)
 
         if 'intermediate_sql' in llm_response:
@@ -1735,7 +1733,7 @@ class VannaBase(ABC):
         retry_num: int = 2,
         skip_chart: bool = False,   # control whether to generate Plotly code
         skip_run_sql: bool = False, # control whether to execute generated SQL
-        sql_row_limit: int = 100,   # control number of rows returned: -1 for no limit
+        sql_row_limit: int = 20,   # control number of rows returned: -1 for no limit
         print_prompt: bool = True,    # show prompt
         print_response: bool = True,  # show response
         print_results: bool = True,   # show results
@@ -1790,7 +1788,7 @@ class VannaBase(ABC):
         auto_train: bool = True,
         visualize: bool = True,  # if False, will not generate plotly code
         allow_llm_to_see_data: bool = True,
-        sql_row_limit: int = 100,   # control number of rows returned: -1 for no limit
+        sql_row_limit: int = 20,   # control number of rows returned: -1 for no limit
         print_prompt: bool = True,    # show prompt
         print_response: bool = True,  # show response
     ) -> AskResult:
