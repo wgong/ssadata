@@ -89,3 +89,25 @@ def strip_brackets(ddl):
     # Use regular expressions to match and replace square brackets
     pattern = r"\[([^\]]+)]"  # Match any character except ] within square brackets
     return re.sub(pattern, r"\1", ddl)
+
+def convert_to_string_list(df):
+    """
+    Convert dataframe to row-data list
+
+    Input:
+        df (dataframe) - contains business terms as additional metadata documentations,
+            It has 4 columns: [business_term, business_description, related_tables, related_columns]
+
+    Returns:
+        list of str
+    """
+    result = []
+    for _, row in df.iterrows():
+        formatted_string = (
+            f"business_term : {row['business_term']}; "
+            f"business_description : {row['business_description']}; "
+            f"related_tables : {row['related_tables']}; "
+            f"related_columns : {row['related_columns']}; "
+        )
+        result.append(formatted_string)
+    return result

@@ -107,6 +107,8 @@ except Exception as e:
     print(f"Failed to import IPython: {str(e)}")
     HAS_IPYTHON = False
 
+SEPARATOR = "\n" + 80*'=' + "\n"
+
 class AskResult(NamedTuple):
     sql: Optional[str]
     df: Optional[pd.DataFrame]
@@ -175,10 +177,9 @@ class VannaBase(ABC):
         if off_flag:
             return 
         
-        if title:
-            print(f"\n[( {title} )]\n{message}")
-        else:
-            print(f"\n{message}")
+        msg = f"\n[( {title} )]\n{message}" if title else f"\n{message}"
+        msg += SEPARATOR
+        print(msg)
 
     def _response_language(self) -> str:
         if self.language is None:
@@ -1833,6 +1834,7 @@ class VannaBase(ABC):
             "You need to connect to a database first by running vn.connect_to_snowflake(), vn.connect_to_postgres(), similar function, or manually set vn.run_sql"
         )
 
+
     def ask_adaptive(
         self,
         question: Union[str, None] = None,
@@ -1846,7 +1848,7 @@ class VannaBase(ABC):
         print_results: bool = True,   # show results
         auto_train: bool = True,
         use_latest_message: bool = False,
-        separator: str = 80*'=',
+        separator: str = SEPARATOR,
         tag_id: str = "",
         sleep_sec: int = 1,
     ) -> AskResult:
@@ -1878,7 +1880,7 @@ class VannaBase(ABC):
 
         """
         with suppress_warnings_only():
-            
+
             tag = f" - {tag_id}" if tag_id else ""
             self.log(f"\n{separator}\n# QUESTION {tag}:  {question}\n{separator}\n")
 
