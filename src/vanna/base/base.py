@@ -50,6 +50,7 @@ flowchart
 
 import json
 import os
+import sys
 import re
 import sqlite3
 import time
@@ -66,6 +67,35 @@ import plotly.graph_objects as go
 import plotly.graph_objs as Figure
 import requests
 import sqlparse
+
+from contextlib import contextmanager
+
+@contextmanager
+def suppress_warnings_only():
+    """
+        Suppress warning messages from ChromaDB
+    """
+    class WarningFilter:
+        FILTERED_MESSAGES = [
+            "Number of requested results",
+            "Insert of existing embedding ID",
+            "Add of existing embedding ID",
+        ]
+        
+        def write(self, x): 
+            # Only write if none of the filtered messages are in x
+            if not any(msg in x for msg in self.FILTERED_MESSAGES):
+                old_stderr.write(x)
+                
+        def flush(self): 
+            pass
+    
+    old_stderr = sys.stderr
+    sys.stderr = WarningFilter()
+    try:
+        yield
+    finally:
+        sys.stderr = old_stderr
 
 from ..exceptions import DependencyError, ImproperlyConfigured, ValidationError
 from ..types import TrainingPlan, TrainingPlanItem
@@ -1847,27 +1877,11 @@ class VannaBase(ABC):
                 - error msg (str)
 
         """
-        tag = f" - {tag_id}" if tag_id else ""
-        self.log(f"\n{separator}\n# QUESTION {tag}:  {question}\n{separator}\n")
+        with suppress_warnings_only():
+            
+            tag = f" - {tag_id}" if tag_id else ""
+            self.log(f"\n{separator}\n# QUESTION {tag}:  {question}\n{separator}\n")
 
-        answer = self.ask(question=question,
-                          print_results=print_results, 
-                          auto_train=auto_train, 
-                          visualize=(not skip_chart), 
-                          allow_llm_to_see_data=(not skip_run_sql), 
-                          sql_row_limit=sql_row_limit, 
-                          print_prompt=print_prompt, 
-                          print_response=print_response, 
-                          use_latest_message=use_latest_message,
-                          semantic_search=semantic_search)
-        if (not answer.err_msg) or (LogTag.ERROR_SQL not in answer.err_msg) and (LogTag.ERROR_DB not in answer.err_msg):
-            return answer
-
-        if semantic_search:
-            return answer
-
-        if (answer.err_msg and "unknown error was encountered" in answer.err_msg):
-            # re-prompt
             answer = self.ask(question=question,
                             print_results=print_results, 
                             auto_train=auto_train, 
@@ -1876,34 +1890,52 @@ class VannaBase(ABC):
                             sql_row_limit=sql_row_limit, 
                             print_prompt=print_prompt, 
                             print_response=print_response, 
-                            use_latest_message=use_latest_message)
-
-            if not answer.err_msg or (LogTag.ERROR_SQL not in answer.err_msg) and (LogTag.ERROR_DB not in answer.err_msg):
+                            use_latest_message=use_latest_message,
+                            semantic_search=semantic_search)
+            if (not answer.err_msg) or (LogTag.ERROR_SQL not in answer.err_msg) and (LogTag.ERROR_DB not in answer.err_msg):
                 return answer
 
-        # re-prompt
-        for i_retry in range(retry_num):
-            self.log(title=LogTag.RETRY, message=f"***** {i_retry+1} *****")
-            question = f"""
-                For this question: {question}, 
-                your generated SQL statement: {answer.sql} results in the following error: {answer.err_msg} .
-                Can you please fix this error and re-generate the SQL statement?
-            """           
-            answer = self.ask(question=question,
-                            print_results=print_results, 
-                            auto_train=auto_train, 
-                            visualize=(not skip_chart), 
-                            allow_llm_to_see_data=(not skip_run_sql), 
-                            sql_row_limit=sql_row_limit, 
-                            print_prompt=print_prompt, 
-                            print_response=print_response, 
-                            use_latest_message=use_latest_message)
-            if (not answer.err_msg) or (LogTag.ERROR_SQL not in answer.err_msg) and (LogTag.ERROR_DB not in answer.err_msg):
-                break
+            if semantic_search:
+                return answer
 
-            time.sleep(sleep_sec)
+            if (answer.err_msg and "unknown error was encountered" in answer.err_msg):
+                # re-prompt
+                answer = self.ask(question=question,
+                                print_results=print_results, 
+                                auto_train=auto_train, 
+                                visualize=(not skip_chart), 
+                                allow_llm_to_see_data=(not skip_run_sql), 
+                                sql_row_limit=sql_row_limit, 
+                                print_prompt=print_prompt, 
+                                print_response=print_response, 
+                                use_latest_message=use_latest_message)
 
-        return answer
+                if not answer.err_msg or (LogTag.ERROR_SQL not in answer.err_msg) and (LogTag.ERROR_DB not in answer.err_msg):
+                    return answer
+
+            # re-prompt
+            for i_retry in range(retry_num):
+                self.log(title=LogTag.RETRY, message=f"***** {i_retry+1} *****")
+                question = f"""
+                    For this question: {question}, 
+                    your generated SQL statement: {answer.sql} results in the following error: {answer.err_msg} .
+                    Can you please fix this error and re-generate the SQL statement?
+                """           
+                answer = self.ask(question=question,
+                                print_results=print_results, 
+                                auto_train=auto_train, 
+                                visualize=(not skip_chart), 
+                                allow_llm_to_see_data=(not skip_run_sql), 
+                                sql_row_limit=sql_row_limit, 
+                                print_prompt=print_prompt, 
+                                print_response=print_response, 
+                                use_latest_message=use_latest_message)
+                if (not answer.err_msg) or (LogTag.ERROR_SQL not in answer.err_msg) and (LogTag.ERROR_DB not in answer.err_msg):
+                    break
+
+                time.sleep(sleep_sec)
+
+            return answer
 
     def ask(
         self,
