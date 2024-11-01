@@ -1811,8 +1811,8 @@ class VannaBase(ABC):
         skip_chart: bool = False,   # control whether to generate Plotly code
         skip_run_sql: bool = False, # control whether to execute generated SQL
         sql_row_limit: int = 20,   # control number of rows returned: -1 for no limit
-        print_prompt: bool = True,    # show prompt
-        print_response: bool = True,  # show response
+        print_prompt: bool = False,    # show prompt
+        print_response: bool = False,  # show response
         print_results: bool = True,   # show results
         auto_train: bool = True,
         use_latest_message: bool = False,
@@ -1826,12 +1826,12 @@ class VannaBase(ABC):
         Args:
             question (str): The question to ask.
             retry_num (int): Maximum number of retries (default=2),
-            skip_gen_sql (bool): whether to skip generating SQL (default=False)
+            skip_gen_sql (bool): Skip generating SQL (default=False)
             skip_chart (bool): Skip generating Plotly code when True (default=False)
             skip_run_sql (bool): Skip executing generated SQL when True (default=False)
             sql_row_limit (int): Maximum number of rows to return, -1 for no limit (default=20)
-            print_prompt (bool): Print prompt, useful for debugging (default=True) 
-            print_response (bool): Print LLM Response, useful for debugging (default=True) 
+            print_prompt (bool): Print prompt, useful for debugging (default=False) 
+            print_response (bool): Print LLM Response, useful for debugging (default=False) 
             print_results (bool): Show results such as generated SQL, queried dataframe, plotly chart (default=True) 
             auto_train (bool): Add valid (question,generated_sql) pair to Training dataset (default=True) 
             use_latest_message (bool): keep only the latest user query by removing prior context (default=False) 
@@ -1914,8 +1914,8 @@ class VannaBase(ABC):
         visualize: bool = True,  # if False, will not generate plotly code
         allow_llm_to_see_data: bool = True,
         sql_row_limit: int = 20,   # control number of rows returned: -1 for no limit
-        print_prompt: bool = True,    # show prompt
-        print_response: bool = True,  # show response
+        print_prompt: bool = False,    # show prompt
+        print_response: bool = False,  # show response
         use_latest_message: bool = False,
         skip_gen_sql: bool = False,
     ) -> AskResult:
@@ -1936,8 +1936,8 @@ class VannaBase(ABC):
             visualize (bool): Whether to generate plotly code and display the plotly figure.
             allow_llm_to_see_data (bool): execute generated SQL
             sql_row_limit (int): Maximum number of rows to return, -1 for no limit (default=20)
-            print_prompt (bool): Print prompt, useful for debugging (default=True) 
-            print_response (bool): Print LLM Response, useful for debugging (default=True) 
+            print_prompt (bool): Print prompt, useful for debugging (default=False) 
+            print_response (bool): Print LLM Response, useful for debugging (default=False) 
             use_latest_message (bool): keep only the latest user query by removing prior context (default=False) 
             skip_gen_sql (bool): whether to skip generating SQL (default=False)
 
