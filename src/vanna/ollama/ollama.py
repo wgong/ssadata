@@ -6,7 +6,6 @@ from httpx import Timeout
 from ..base import VannaBase
 from ..exceptions import DependencyError
 
-
 class Ollama(VannaBase):
   def __init__(self, config=None):
 
@@ -18,17 +17,15 @@ class Ollama(VannaBase):
         " \npip install ollama"
       )
 
-    if not config:
+    if not config or 'model' not in config.keys():
       raise ValueError("config must contain at least Ollama model")
-    if 'model' not in config.keys():
-      raise ValueError("config must contain at least Ollama model")
+
     self.host = config.get("ollama_host", "http://localhost:11434")
-    self.model = config["model"]
+    self.model = config.get("model", "llama3.1")  # use Llama3.1 as default
     if ":" not in self.model:
       self.model += ":latest"
 
     self.ollama_timeout = config.get("ollama_timeout", 240.0)
-
     self.ollama_client = ollama.Client(self.host, timeout=Timeout(self.ollama_timeout))
     self.keep_alive = config.get('keep_alive', None)
     self.ollama_options = config.get('options', {})
@@ -76,14 +73,12 @@ class Ollama(VannaBase):
                             llm_response,
                             re.IGNORECASE | re.DOTALL)
     if sql:
-      # self.log(
-      #   f"Output from LLM: {llm_response} \nExtracted SQL: {sql.group(1)}")
-      if SHOW_SQL: self.log(f"Extracted SQL:\n {sql.group(1)}")
+      if SHOW_SQL: 
+        self.log(f"Extracted SQL:\n {sql.group(1)}")
       return sql.group(1).replace("```", "")
     elif select_with:
-      # self.log(
-      #   f"Output from LLM: {llm_response} \nExtracted SQL: {select_with.group(0)}")
-      if SHOW_SQL: self.log(f"Extracted SQL:\n {select_with.group(0)}")
+      if SHOW_SQL: 
+        self.log(f"Extracted SQL:\n {select_with.group(0)}")
       return select_with.group(0)
     else:
       return llm_response

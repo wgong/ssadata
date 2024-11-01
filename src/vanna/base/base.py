@@ -90,6 +90,7 @@ class LogTag:
     ERROR_DB = "[ERROR-DB]"
     ERROR_DF = "[ERROR-DF]"
     ERROR_VIZ = "[ERROR-VIZ]"
+    CTX_PROMPT = "Context PROMPT"
     SQL_PROMPT = "SQL PROMPT"
     SHOW_DATA = "<DataFrame>"
     SHOW_SQL = "<SQL>"
@@ -153,6 +154,74 @@ class VannaBase(ABC):
             return ""
 
         return f"Respond in the {self.language} language."
+
+    def summarize_context(self, question: str, print_prompt=True, print_response=True, **kwargs) -> str:
+        if self.config is not None:
+            initial_prompt = self.config.get("initial_prompt", None)
+        else:
+            initial_prompt = None
+        question_sql_list = self.get_similar_question_sql(question, **kwargs)
+        ddl_list = self.get_related_ddl(question, **kwargs)
+        doc_list = self.get_related_documentation(question, **kwargs)
+        prompt = self.get_context_prompt(
+            initial_prompt=initial_prompt,
+            question=question,
+            question_sql_list=question_sql_list,
+            ddl_list=ddl_list,
+            doc_list=doc_list,
+            **kwargs,
+        )
+
+        self.log(title=LogTag.CTX_PROMPT, message=prompt, off_flag=print_prompt)
+        llm_response = self.submit_prompt(prompt, print_prompt=print_prompt, print_response=print_response, **kwargs)
+        self.log(title=LogTag.LLM_RESPONSE, message=llm_response, off_flag=print_response)
+
+        return llm_response
+
+    def get_context_prompt(
+        self,
+        initial_prompt : str,
+        question: str,
+        question_sql_list: list,
+        ddl_list: list,
+        doc_list: list,
+        **kwargs,
+    ):
+        if initial_prompt is None:
+            initial_prompt = f"You are an AI assistant with extensive database knowledge and capable of answering data-related questions. " + \
+            "Your response should ONLY be based on the given context and follow the response guidelines and format instructions. "
+
+        initial_prompt = self.add_ddl_to_prompt(
+            initial_prompt, ddl_list, max_tokens=self.max_tokens
+        )
+
+        if self.static_documentation != "":
+            doc_list.append(self.static_documentation)
+
+        initial_prompt = self.add_documentation_to_prompt(
+            initial_prompt, doc_list, max_tokens=self.max_tokens
+        )
+
+        initial_prompt += (
+            "===Response Guidelines \n"
+            "1. If the provided context is sufficient, please give a summary answer by synthesizing the context and prompt. \n"
+            "2. If the provided context is insufficient, please explain why it can't be generated and say I don't know. \n"
+        )
+
+        message_log = [self.system_message(initial_prompt)]
+
+        for example in question_sql_list:
+            if example is None:
+                print("example is None")
+            else:
+                if example is not None and "question" in example and "sql" in example:
+                    message_log.append(self.user_message(example["question"]))
+                    message_log.append(self.assistant_message(example["sql"]))
+
+        message_log.append(self.user_message(question))
+
+        return message_log
+
 
     def generate_sql(self, question: str, allow_llm_to_see_data=False, print_prompt=True, print_response=True, use_latest_message=False, **kwargs) -> str:
         """
@@ -249,21 +318,21 @@ class VannaBase(ABC):
         """
 
         # If the llm_response contains a CTE (with clause), extract the last sql between WITH and ;
-        sqls = re.findall(r"\bWITH\b .*?;", llm_response, re.DOTALL)
+        sqls = re.findall(r"\bWITH\b .*?;", llm_response, re.IGNORECASE | re.DOTALL)
         if sqls:
             sql = sqls[-1]
             self.log(title=LogTag.EXTRACTED_SQL, message=f"{sql}")
             return remove_sql_noise(sql)
 
         # If the llm_response is not markdown formatted, extract last sql by finding select and ; in the response
-        sqls = re.findall(r"SELECT.*?;", llm_response, re.DOTALL)
+        sqls = re.findall(r"SELECT.*?;", llm_response, re.IGNORECASE | re.DOTALL)
         if sqls:
             sql = sqls[-1]
             self.log(title=LogTag.EXTRACTED_SQL, message=f"{sql}")
             return remove_sql_noise(sql)
 
         # If the llm_response contains a markdown code block, with or without the sql tag, extract the last sql from it
-        sqls = re.findall(r"```sql\n(.*)```", llm_response, re.DOTALL)
+        sqls = re.findall(r"```sql\n(.*)```", llm_response, re.IGNORECASE | re.DOTALL)
         if sqls:
             sql = sqls[-1]
             self.log(title=LogTag.EXTRACTED_SQL, message=f"{sql}")
@@ -1736,7 +1805,8 @@ class VannaBase(ABC):
     def ask_adaptive(
         self,
         question: Union[str, None] = None,
-        retry_num: int = 2,
+        retry_num: int = 3,
+        skip_gen_sql: bool = False, # control whether to skip generating SQL
         skip_chart: bool = False,   # control whether to generate Plotly code
         skip_run_sql: bool = False, # control whether to execute generated SQL
         sql_row_limit: int = 20,   # control number of rows returned: -1 for no limit
@@ -1750,38 +1820,85 @@ class VannaBase(ABC):
         sleep_sec: int = 1,
     ) -> AskResult:
         """
-        Enhanced adaptive retry prompting : 
-        when response has error, revise prompt by asking to fix
-        """
-        # translate flags
-        visualize = not skip_chart 
-        allow_llm_to_see_data = not skip_run_sql
+        Enhanced adaptive prompting by augmenting prompt with error message for LLM to self-correct
 
-        tag = f"- {tag_id}" if tag_id else ""
+        Args:
+            question (str): The question to ask.
+            retry_num (int): Maximum number of retries (default=2),
+            skip_gen_sql (bool): whether to skip generating SQL (default=False)
+            skip_chart (bool): Skip generating Plotly code when True (default=False)
+            skip_run_sql (bool): Skip executing generated SQL when True (default=False)
+            sql_row_limit (int): Maximum number of rows to return, -1 for no limit (default=20)
+            print_prompt (bool): Print prompt, useful for debugging (default=True) 
+            print_response (bool): Print LLM Response, useful for debugging (default=True) 
+            print_results (bool): Show results such as generated SQL, queried dataframe, plotly chart (default=True) 
+            auto_train (bool): Add valid (question,generated_sql) pair to Training dataset (default=True) 
+            use_latest_message (bool): keep only the latest user query by removing prior context (default=False) 
+            separator (str): message tag (default=80*'='),
+            tag_id (str): question tag (default=""),
+            sleep_sec (int) Sleep time between retries (default=1 sec),
+
+        Returns:
+            AskResult: A named tuple of 
+                - The SQL query (str)
+                - df of the SQL query (pd.DataFrame)
+                - plotly figure (plotly.graph_objs.Figure)
+                - error msg (str)
+
+        """
+        tag = f" - {tag_id}" if tag_id else ""
         self.log(f"\n{separator}\n# QUESTION {tag}:  {question}\n{separator}\n")
 
-        answer = self.ask(question, print_results, auto_train, visualize, allow_llm_to_see_data, sql_row_limit, print_prompt, print_response)
-        if not answer.err_msg or (LogTag.ERROR_SQL not in answer.err_msg) and (LogTag.ERROR_DB not in answer.err_msg):
+        answer = self.ask(question=question,
+                          print_results=print_results, 
+                          auto_train=auto_train, 
+                          visualize=(not skip_chart), 
+                          allow_llm_to_see_data=(not skip_run_sql), 
+                          sql_row_limit=sql_row_limit, 
+                          print_prompt=print_prompt, 
+                          print_response=print_response, 
+                          use_latest_message=use_latest_message,
+                          skip_gen_sql=skip_gen_sql)
+        if (not answer.err_msg) or (LogTag.ERROR_SQL not in answer.err_msg) and (LogTag.ERROR_DB not in answer.err_msg):
             return answer
-    
-        is_sys_err = answer.err_msg and "an unknown error was encountered while running the model" in answer.err_msg
-        if is_sys_err:
+
+        if skip_gen_sql:
+            return answer
+
+        if (answer.err_msg and "unknown error was encountered" in answer.err_msg):
             # re-prompt
-            answer = self.ask(question, print_results, auto_train, visualize, allow_llm_to_see_data, sql_row_limit, print_prompt, print_response)
+            answer = self.ask(question=question,
+                            print_results=print_results, 
+                            auto_train=auto_train, 
+                            visualize=(not skip_chart), 
+                            allow_llm_to_see_data=(not skip_run_sql), 
+                            sql_row_limit=sql_row_limit, 
+                            print_prompt=print_prompt, 
+                            print_response=print_response, 
+                            use_latest_message=use_latest_message)
+
             if not answer.err_msg or (LogTag.ERROR_SQL not in answer.err_msg) and (LogTag.ERROR_DB not in answer.err_msg):
                 return answer
 
-        # re-try
+        # re-prompt
+        answer = ""
         for i_retry in range(retry_num):
             self.log(title=LogTag.RETRY, message=f"***** {i_retry+1} *****")
             question = f"""
                 For this question: {question}, 
-                your generated SQL statement: {answer.sql} results in the following exception: {answer.err_msg} .
-                Can you please fix the error and re-generate the SQL statement?
-            """
-            
-            answer = self.ask(question, print_results, auto_train, visualize, allow_llm_to_see_data, sql_row_limit, print_prompt, print_response)
-            if not answer.err_msg or (LogTag.ERROR_SQL not in answer.err_msg) and (LogTag.ERROR_DB not in answer.err_msg):
+                your generated SQL statement: {answer.sql} results in the following error: {answer.err_msg} .
+                Can you please fix this error and re-generate the SQL statement?
+            """           
+            answer = self.ask(question=question,
+                            print_results=print_results, 
+                            auto_train=auto_train, 
+                            visualize=(not skip_chart), 
+                            allow_llm_to_see_data=(not skip_run_sql), 
+                            sql_row_limit=sql_row_limit, 
+                            print_prompt=print_prompt, 
+                            print_response=print_response, 
+                            use_latest_message=use_latest_message)
+            if (not answer.err_msg) or (LogTag.ERROR_SQL not in answer.err_msg) and (LogTag.ERROR_DB not in answer.err_msg):
                 break
 
             time.sleep(sleep_sec)
@@ -1799,6 +1916,7 @@ class VannaBase(ABC):
         print_prompt: bool = True,    # show prompt
         print_response: bool = True,  # show response
         use_latest_message: bool = False,
+        skip_gen_sql: bool = False,
     ) -> AskResult:
         """
         **Example:**
@@ -1815,13 +1933,19 @@ class VannaBase(ABC):
             print_results (bool): Whether to print the results of the SQL query.
             auto_train (bool): Whether to automatically train Vanna.AI on the question and SQL query.
             visualize (bool): Whether to generate plotly code and display the plotly figure.
+            allow_llm_to_see_data (bool): execute generated SQL
+            sql_row_limit (int): Maximum number of rows to return, -1 for no limit (default=20)
+            print_prompt (bool): Print prompt, useful for debugging (default=True) 
+            print_response (bool): Print LLM Response, useful for debugging (default=True) 
+            use_latest_message (bool): keep only the latest user query by removing prior context (default=False) 
+            skip_gen_sql (bool): whether to skip generating SQL (default=False)
 
         Returns:
             AskResult: A named tuple of 
-            - The SQL query (str)
-            - df of the SQL query (pd.DataFrame)
-            - plotly figure (plotly.graph_objs.Figure)
-            - error msg (str)
+                - The SQL query (str)
+                - df of the SQL query (pd.DataFrame)
+                - plotly figure (plotly.graph_objs.Figure)
+                - error msg (str)
         """
         sql = None
         df = None
@@ -1831,6 +1955,11 @@ class VannaBase(ABC):
             # question = input("Enter a question: ")
             err_msg = f"{LogTag.ERROR_INPUT} Prompt question is missing"
             return AskResult(None, None, None, err_msg)
+
+        if skip_gen_sql:
+            # summarize context + prompt
+            msg = self.summarize_context(question=question, print_prompt=print_prompt, print_response=print_response)
+            return AskResult(msg, None, None, None)   
 
         # ====================
         # Generate SQL
