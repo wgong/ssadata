@@ -1807,7 +1807,7 @@ class VannaBase(ABC):
         self,
         question: Union[str, None] = None,
         retry_num: int = 3,
-        skip_gen_sql: bool = False, # control whether to skip generating SQL
+        semantic_search: bool = False, # Search Schema and skip generating SQL
         skip_chart: bool = False,   # control whether to generate Plotly code
         skip_run_sql: bool = False, # control whether to execute generated SQL
         sql_row_limit: int = 20,   # control number of rows returned: -1 for no limit
@@ -1826,7 +1826,7 @@ class VannaBase(ABC):
         Args:
             question (str): The question to ask.
             retry_num (int): Maximum number of retries (default=2),
-            skip_gen_sql (bool): Skip generating SQL (default=False)
+            semantic_search (bool): Search schema and skip generating SQL (default=False)
             skip_chart (bool): Skip generating Plotly code when True (default=False)
             skip_run_sql (bool): Skip executing generated SQL when True (default=False)
             sql_row_limit (int): Maximum number of rows to return, -1 for no limit (default=20)
@@ -1859,11 +1859,11 @@ class VannaBase(ABC):
                           print_prompt=print_prompt, 
                           print_response=print_response, 
                           use_latest_message=use_latest_message,
-                          skip_gen_sql=skip_gen_sql)
+                          semantic_search=semantic_search)
         if (not answer.err_msg) or (LogTag.ERROR_SQL not in answer.err_msg) and (LogTag.ERROR_DB not in answer.err_msg):
             return answer
 
-        if skip_gen_sql:
+        if semantic_search:
             return answer
 
         if (answer.err_msg and "unknown error was encountered" in answer.err_msg):
@@ -1917,7 +1917,7 @@ class VannaBase(ABC):
         print_prompt: bool = False,    # show prompt
         print_response: bool = False,  # show response
         use_latest_message: bool = False,
-        skip_gen_sql: bool = False,
+        semantic_search: bool = False,
     ) -> AskResult:
         """
         **Example:**
@@ -1939,7 +1939,7 @@ class VannaBase(ABC):
             print_prompt (bool): Print prompt, useful for debugging (default=False) 
             print_response (bool): Print LLM Response, useful for debugging (default=False) 
             use_latest_message (bool): keep only the latest user query by removing prior context (default=False) 
-            skip_gen_sql (bool): whether to skip generating SQL (default=False)
+            semantic_search (bool): search schema and skip generating SQL (default=False)
 
         Returns:
             AskResult: A named tuple of 
@@ -1957,10 +1957,12 @@ class VannaBase(ABC):
             err_msg = f"{LogTag.ERROR_INPUT} Prompt question is missing"
             return AskResult(None, None, None, err_msg)
 
-        if skip_gen_sql:
-            # summarize context + prompt
-            ctx_msg = self.summarize_context(question=question, print_prompt=print_prompt, print_response=print_response)
-            self.log(title=LogTag.SHOW_CXT, message="context summary")
+        if semantic_search:
+            # answer schema-related prompt
+            ctx_msg = self.summarize_context(question=question,
+                                             print_prompt=print_prompt,
+                                             print_response=print_response)
+            self.log(title=LogTag.SHOW_CXT, message=" Context summary")
             display(Code(ctx_msg, language='md'))
             return AskResult(ctx_msg, None, None, None)   
 
