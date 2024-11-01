@@ -92,6 +92,7 @@ class LogTag:
     ERROR_VIZ = "[ERROR-VIZ]"
     CTX_PROMPT = "Context PROMPT"
     SQL_PROMPT = "SQL PROMPT"
+    SHOW_CXT = "<Context>"
     SHOW_DATA = "<DataFrame>"
     SHOW_SQL = "<SQL>"
     SHOW_PYTHON = "<Python>"
@@ -172,9 +173,9 @@ class VannaBase(ABC):
             **kwargs,
         )
 
-        self.log(title=LogTag.CTX_PROMPT, message=prompt, off_flag=print_prompt)
+        self.log(title=LogTag.CTX_PROMPT, message=prompt, off_flag=not print_prompt)
         llm_response = self.submit_prompt(prompt, print_prompt=print_prompt, print_response=print_response, **kwargs)
-        self.log(title=LogTag.LLM_RESPONSE, message=llm_response, off_flag=print_response)
+        self.log(title=LogTag.LLM_RESPONSE, message=llm_response, off_flag=not print_response)
 
         return llm_response
 
@@ -268,9 +269,9 @@ class VannaBase(ABC):
 
         if use_latest_message:
             prompt = keep_latest_messages(prompt)
-        self.log(title=LogTag.SQL_PROMPT, message=prompt, off_flag=print_prompt)
+        self.log(title=LogTag.SQL_PROMPT, message=prompt, off_flag=not print_prompt)
         llm_response = self.submit_prompt(prompt, print_prompt=print_prompt, print_response=print_response, **kwargs)
-        self.log(title=LogTag.LLM_RESPONSE, message=llm_response, off_flag=print_response)
+        self.log(title=LogTag.LLM_RESPONSE, message=llm_response, off_flag=not print_response)
 
         if 'intermediate_sql' in llm_response:
             if not allow_llm_to_see_data:
@@ -280,7 +281,7 @@ class VannaBase(ABC):
                 intermediate_sql = self.extract_sql(llm_response)
 
                 try:
-                    self.log(title=LogTag.RUN_INTER_SQL, message=intermediate_sql, off_flag=print_response)
+                    self.log(title=LogTag.RUN_INTER_SQL, message=intermediate_sql, off_flag=not print_response)
                     df = self.run_sql(intermediate_sql)
 
                     prompt = self.get_sql_prompt(
@@ -291,9 +292,9 @@ class VannaBase(ABC):
                         doc_list=doc_list+[f"The following is a pandas DataFrame with the results of the intermediate SQL query {intermediate_sql}: \n" + df.to_markdown()],
                         **kwargs,
                     )
-                    self.log(title=LogTag.SQL_PROMPT, message=prompt, off_flag=print_prompt)
+                    self.log(title=LogTag.SQL_PROMPT, message=prompt, off_flag=not print_prompt)
                     llm_response = self.submit_prompt(prompt, **kwargs)
-                    self.log(title=LogTag.LLM_RESPONSE, message=llm_response, off_flag=print_response)
+                    self.log(title=LogTag.LLM_RESPONSE, message=llm_response, off_flag=not print_response)
                 except Exception as e:
                     return f"Error running intermediate SQL: {e}"
 
@@ -1958,8 +1959,10 @@ class VannaBase(ABC):
 
         if skip_gen_sql:
             # summarize context + prompt
-            msg = self.summarize_context(question=question, print_prompt=print_prompt, print_response=print_response)
-            return AskResult(msg, None, None, None)   
+            ctx_msg = self.summarize_context(question=question, print_prompt=print_prompt, print_response=print_response)
+            self.log(title=LogTag.SHOW_CXT, message="context summary")
+            display(Code(ctx_msg, language='md'))
+            return AskResult(ctx_msg, None, None, None)   
 
         # ====================
         # Generate SQL
