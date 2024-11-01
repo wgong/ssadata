@@ -1882,7 +1882,6 @@ class VannaBase(ABC):
                 return answer
 
         # re-prompt
-        answer = ""
         for i_retry in range(retry_num):
             self.log(title=LogTag.RETRY, message=f"***** {i_retry+1} *****")
             question = f"""
