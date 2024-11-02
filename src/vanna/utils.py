@@ -6,6 +6,7 @@ from typing import Union
 
 from .exceptions import ImproperlyConfigured, ValidationError
 
+SEPARATOR = "\n" + 80*'=' + "\n"
 
 def validate_config_path(path):
     if not os.path.exists(path):
@@ -76,6 +77,20 @@ def deterministic_uuid(content: Union[str, bytes]) -> str:
 
     return content_uuid
 
+def vn_log(message: str, title: str = "", off_flag: bool = False):
+    if off_flag:
+        return 
+    
+    if message:
+        msg = f"\n[( {title} )]\n{message}" if title else f"\n{message}"
+        msg += SEPARATOR
+    else:
+        msg = f"\n[( {title} )]" + SEPARATOR if title else ""
+
+    if msg:
+        print(msg)
+
+
 def strip_brackets(ddl):
     """
     This function removes square brackets from table and column names in a DDL script.
@@ -111,3 +126,43 @@ def convert_to_string_list(df):
         )
         result.append(formatted_string)
     return result
+
+def remove_sql_noise(sql):
+    if 'intermediate_sql' in sql or 'final_sql' in sql:
+        sql = sql.replace('intermediate_sql', '').replace('final_sql', '')
+    return sql 
+
+def extract_sql(llm_response: str, **kwargs) -> str:
+    """
+    Extracts SQL from LLM response with flexible pattern matching.
+    
+    Args:
+        llm_response (str): The LLM response
+        **kwargs: 
+            take_last (bool): Whether to take the last match instead of first
+            show_sql (bool): Whether to log the extracted SQL
+    
+    Returns:
+        str: The extracted SQL query
+    """
+    # Preprocess
+    llm_response = llm_response.replace("\\_", "_").replace("\\", "")
+    
+    # Try markdown code blocks first
+    sql_blocks = re.findall(r"```sql\n(.*?)```", llm_response, re.IGNORECASE | re.DOTALL)
+    if sql_blocks:
+        sql = sql_blocks[-1] if kwargs.get('take_last') else sql_blocks[0]
+        if kwargs.get('show_sql'):
+            vn_log(f"Extracted SQL:\n{sql}")
+        return remove_sql_noise(sql)
+    
+    # Try WITH/SELECT patterns
+    pattern = r"(?:WITH|SELECT).*?(?=;|\[|```|$)"
+    matches = re.findall(pattern, llm_response, re.IGNORECASE | re.DOTALL)
+    if matches:
+        sql = matches[-1] if kwargs.get('take_last') else matches[0]
+        if kwargs.get('show_sql'):
+            vn_log(f"Extracted SQL:\n{sql}")
+        return remove_sql_noise(sql)
+    
+    return llm_response

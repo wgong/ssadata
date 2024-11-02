@@ -49,39 +49,39 @@ class Ollama(VannaBase):
   def assistant_message(self, message: str) -> any:
     return {"role": "assistant", "content": message}
 
-  def extract_sql(self, llm_response, **kwargs):
-    """
-    Extracts the first SQL statement after the word 'select', ignoring case,
-    matches until the first semicolon, three backticks, or the end of the string,
-    and removes three backticks if they exist in the extracted string.
+  # def extract_sql(self, llm_response, **kwargs):
+  #   """
+  #   Extracts the first SQL statement after the word 'select', ignoring case,
+  #   matches until the first semicolon, three backticks, or the end of the string,
+  #   and removes three backticks if they exist in the extracted string.
 
-    Args:
-    - llm_response (str): The string to search within for an SQL statement.
+  #   Args:
+  #   - llm_response (str): The string to search within for an SQL statement.
 
-    Returns:
-    - str: The first SQL statement found, with three backticks removed, or an empty string if no match is found.
-    """
-    SHOW_SQL = kwargs.get("SHOW_SQL",False)
-    # Remove ollama-generated extra characters
-    llm_response = llm_response.replace("\\_", "_")
-    llm_response = llm_response.replace("\\", "")
+  #   Returns:
+  #   - str: The first SQL statement found, with three backticks removed, or an empty string if no match is found.
+  #   """
+  #   SHOW_SQL = kwargs.get("SHOW_SQL",False)
+  #   # Remove ollama-generated extra characters
+  #   llm_response = llm_response.replace("\\_", "_")
+  #   llm_response = llm_response.replace("\\", "")
 
-    # Regular expression to find ```sql' and capture until '```'
-    sql = re.search(r"```sql\n((.|\n)*?)(?=;|\[|```)", llm_response, re.DOTALL)
-    # Regular expression to find 'select, with (ignoring case) and capture until ';', [ (this happens in case of mistral) or end of string
-    select_with = re.search(r'(select|(with.*?as \())(.*?)(?=;|\[|```)',
-                            llm_response,
-                            re.IGNORECASE | re.DOTALL)
-    if sql:
-      if SHOW_SQL: 
-        self.log(f"Extracted SQL:\n {sql.group(1)}")
-      return sql.group(1).replace("```", "")
-    elif select_with:
-      if SHOW_SQL: 
-        self.log(f"Extracted SQL:\n {select_with.group(0)}")
-      return select_with.group(0)
-    else:
-      return llm_response
+  #   # Regular expression to find ```sql' and capture until '```'
+  #   sql = re.search(r"```sql\n((.|\n)*?)(?=;|\[|```)", llm_response, re.DOTALL)
+  #   # Regular expression to find 'select, with (ignoring case) and capture until ';', [ (this happens in case of mistral) or end of string
+  #   select_with = re.search(r'(select|(with.*?as \())(.*?)(?=;|\[|```)',
+  #                           llm_response,
+  #                           re.IGNORECASE | re.DOTALL)
+  #   if sql:
+  #     if SHOW_SQL: 
+  #       self.log(f"Extracted SQL:\n {sql.group(1)}")
+  #     return sql.group(1).replace("```", "")
+  #   elif select_with:
+  #     if SHOW_SQL: 
+  #       self.log(f"Extracted SQL:\n {select_with.group(0)}")
+  #     return select_with.group(0)
+  #   else:
+  #     return llm_response
 
   def submit_prompt(self, prompt, **kwargs) -> str:
     print_prompt = kwargs.get("print_prompt",False)

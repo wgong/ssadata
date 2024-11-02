@@ -99,15 +99,21 @@ def suppress_warnings_only():
 
 from ..exceptions import DependencyError, ImproperlyConfigured, ValidationError
 from ..types import TrainingPlan, TrainingPlanItem
-from ..utils import validate_config_path, strip_brackets
+from ..utils import (
+    SEPARATOR,
+    vn_log,
+    validate_config_path, 
+    strip_brackets, 
+    remove_sql_noise,
+    # extract_sql  # To verify
+)
+
 try:
     from IPython.display import display, Code, Image
     HAS_IPYTHON = True
 except Exception as e:
     print(f"Failed to import IPython: {str(e)}")
     HAS_IPYTHON = False
-
-SEPARATOR = "\n" + 80*'=' + "\n"
 
 class AskResult(NamedTuple):
     sql: Optional[str]
@@ -137,10 +143,6 @@ class LogTag:
 #=================================
 # helper functions
 #=================================
-def remove_sql_noise(sql):
-    if 'intermediate_sql' in sql or 'final_sql' in sql:
-        sql = sql.replace('intermediate_sql', '').replace('final_sql', '')
-    return sql 
 
 def keep_latest_messages(prompt_json):
     latest_messages = {}
@@ -174,12 +176,7 @@ class VannaBase(ABC):
         self.max_tokens = self.config.get("max_tokens", 14000)
 
     def log(self, message: str, title: str = "", off_flag: bool = False):
-        if off_flag:
-            return 
-        
-        msg = f"\n[( {title} )]\n{message}" if title else f"\n{message}"
-        msg += SEPARATOR
-        print(msg)
+        vn_log(message, title, off_flag)
 
     def _response_language(self) -> str:
         if self.language is None:
@@ -204,9 +201,9 @@ class VannaBase(ABC):
             **kwargs,
         )
 
-        self.log(title=LogTag.CTX_PROMPT, message=prompt, off_flag=not print_prompt)
+        vn_log(title=LogTag.CTX_PROMPT, message=prompt, off_flag=not print_prompt)
         llm_response = self.submit_prompt(prompt, print_prompt=print_prompt, print_response=print_response, **kwargs)
-        self.log(title=LogTag.LLM_RESPONSE, message=llm_response, off_flag=not print_response)
+        vn_log(title=LogTag.LLM_RESPONSE, message=llm_response, off_flag=not print_response)
 
         return llm_response
 
@@ -300,9 +297,9 @@ class VannaBase(ABC):
 
         if use_latest_message:
             prompt = keep_latest_messages(prompt)
-        self.log(title=LogTag.SQL_PROMPT, message=prompt, off_flag=not print_prompt)
+        vn_log(title=LogTag.SQL_PROMPT, message=prompt, off_flag=not print_prompt)
         llm_response = self.submit_prompt(prompt, print_prompt=print_prompt, print_response=print_response, **kwargs)
-        self.log(title=LogTag.LLM_RESPONSE, message=llm_response, off_flag=not print_response)
+        vn_log(title=LogTag.LLM_RESPONSE, message=llm_response, off_flag=not print_response)
 
         if 'intermediate_sql' in llm_response:
             if not allow_llm_to_see_data:
@@ -312,7 +309,7 @@ class VannaBase(ABC):
                 intermediate_sql = self.extract_sql(llm_response)
 
                 try:
-                    self.log(title=LogTag.RUN_INTER_SQL, message=intermediate_sql, off_flag=not print_response)
+                    vn_log(title=LogTag.RUN_INTER_SQL, message=intermediate_sql, off_flag=not print_response)
                     df = self.run_sql(intermediate_sql)
 
                     prompt = self.get_sql_prompt(
@@ -323,9 +320,9 @@ class VannaBase(ABC):
                         doc_list=doc_list+[f"The following is a pandas DataFrame with the results of the intermediate SQL query {intermediate_sql}: \n" + df.to_markdown()],
                         **kwargs,
                     )
-                    self.log(title=LogTag.SQL_PROMPT, message=prompt, off_flag=not print_prompt)
+                    vn_log(title=LogTag.SQL_PROMPT, message=prompt, off_flag=not print_prompt)
                     llm_response = self.submit_prompt(prompt, **kwargs)
-                    self.log(title=LogTag.LLM_RESPONSE, message=llm_response, off_flag=not print_response)
+                    vn_log(title=LogTag.LLM_RESPONSE, message=llm_response, off_flag=not print_response)
                 except Exception as e:
                     return f"Error running intermediate SQL: {e}"
 
@@ -353,27 +350,27 @@ class VannaBase(ABC):
         sqls = re.findall(r"\bWITH\b .*?;", llm_response, re.IGNORECASE | re.DOTALL)
         if sqls:
             sql = sqls[-1]
-            self.log(title=LogTag.EXTRACTED_SQL, message=f"{sql}")
+            vn_log(title=LogTag.EXTRACTED_SQL, message=f"{sql}")
             return remove_sql_noise(sql)
 
         # If the llm_response is not markdown formatted, extract last sql by finding select and ; in the response
         sqls = re.findall(r"SELECT.*?;", llm_response, re.IGNORECASE | re.DOTALL)
         if sqls:
             sql = sqls[-1]
-            self.log(title=LogTag.EXTRACTED_SQL, message=f"{sql}")
+            vn_log(title=LogTag.EXTRACTED_SQL, message=f"{sql}")
             return remove_sql_noise(sql)
 
         # If the llm_response contains a markdown code block, with or without the sql tag, extract the last sql from it
         sqls = re.findall(r"```sql\n(.*)```", llm_response, re.IGNORECASE | re.DOTALL)
         if sqls:
             sql = sqls[-1]
-            self.log(title=LogTag.EXTRACTED_SQL, message=f"{sql}")
+            vn_log(title=LogTag.EXTRACTED_SQL, message=f"{sql}")
             return remove_sql_noise(sql)
 
         sqls = re.findall(r"```(.*)```", llm_response, re.DOTALL)
         if sqls:
             sql = sqls[-1]
-            self.log(title=LogTag.EXTRACTED_SQL, message=f"{sql}")
+            vn_log(title=LogTag.EXTRACTED_SQL, message=f"{sql}")
             return remove_sql_noise(sql)
 
         return llm_response
@@ -1882,7 +1879,7 @@ class VannaBase(ABC):
         with suppress_warnings_only():
 
             tag = f" - {tag_id}" if tag_id else ""
-            self.log(f"\n{separator}\n# QUESTION {tag}:  {question}\n{separator}\n")
+            vn_log(f"\n{separator}\n# QUESTION {tag}:  {question}\n")
 
             answer = self.ask(question=question,
                             print_results=print_results, 
@@ -1917,7 +1914,7 @@ class VannaBase(ABC):
 
             # re-prompt
             for i_retry in range(retry_num):
-                self.log(title=LogTag.RETRY, message=f"***** {i_retry+1} *****")
+                vn_log(title=LogTag.RETRY, message=f"***** {i_retry+1} *****")
                 question = f"""
                     For this question: {question}, 
                     your generated SQL statement: {answer.sql} results in the following error: {answer.err_msg} .
@@ -1995,7 +1992,7 @@ class VannaBase(ABC):
             ctx_msg = self.summarize_context(question=question,
                                              print_prompt=print_prompt,
                                              print_response=print_response)
-            self.log(title=LogTag.SHOW_CXT, message=" Context summary")
+            vn_log(title=LogTag.SHOW_CXT, message=" Context summary")
             display(Code(ctx_msg, language='md'))
             return AskResult(ctx_msg, None, None, None)   
 
@@ -2019,7 +2016,7 @@ class VannaBase(ABC):
 
         if HAS_IPYTHON and print_results:
             try:
-                self.log(title=LogTag.SHOW_SQL, message="generated SQL statement")
+                vn_log(title=LogTag.SHOW_SQL, message="generated SQL statement")
                 display(Code(sql, language='sql'))
             except Exception as e:
                 err_msg = f"{LogTag.ERROR} Failed to display SQL code: {sql} with the following exception: \n{str(e)}"
@@ -2048,7 +2045,7 @@ class VannaBase(ABC):
 
         if HAS_IPYTHON and print_results:
             try:
-                self.log(title=LogTag.SHOW_DATA, message="queried dataframe")
+                vn_log(title=LogTag.SHOW_DATA, message="queried dataframe")
                 display(df)
             except Exception as e:
                 print(str(e))
@@ -2081,7 +2078,7 @@ class VannaBase(ABC):
 
             if HAS_IPYTHON and print_results:
                 try:
-                    self.log(title=LogTag.SHOW_PYTHON, message="generated Plotly code")
+                    vn_log(title=LogTag.SHOW_PYTHON, message="generated Plotly code")
                     display(Code(plotly_code, language='python'))
 
                     img_bytes = fig.to_image(format="png", scale=2)
@@ -2095,9 +2092,6 @@ class VannaBase(ABC):
             err_msg = f"{LogTag.ERROR_VIZ} Failed to visualize df with plotly code:\n str(e)"
 
         return AskResult(sql, df, fig, err_msg)
-
-
-
 
     def train(
         self,
