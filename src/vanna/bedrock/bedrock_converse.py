@@ -10,6 +10,7 @@ except ImportError:
 TEMPERATURE = 0.0
 MAX_TOKENS = 1000
 
+# , region="us-east-1"
 BEDROCK_CLIENT = boto3.client(service_name="bedrock-runtime")
 
 class Bedrock_Converse(VannaBase):
