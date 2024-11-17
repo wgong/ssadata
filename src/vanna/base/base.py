@@ -140,6 +140,7 @@ class LogTag:
     EXTRACTED_SQL = "EXTRACTED SQL"
     RETRY = "RETRY"
     
+
 #=================================
 # helper functions
 #=================================
@@ -164,6 +165,7 @@ def skip_chart(question):
 # main functionality
 #=================================
 class VannaBase(ABC):
+
     def __init__(self, config=None):
         if config is None:
             config = {}
@@ -748,7 +750,7 @@ class VannaBase(ABC):
         """
 
         if initial_prompt is None:
-            initial_prompt = f"You are a {self.dialect} expert. " + \
+            initial_prompt = f"You are a {self.dialect} SQL Database expert. " + \
             "Please help to generate a SQL query to answer the question. Your response should ONLY be based on the given context and follow the response guidelines and format instructions. "
 
         initial_prompt = self.add_ddl_to_prompt(
@@ -769,7 +771,7 @@ class VannaBase(ABC):
             "3. If the provided context is insufficient, please explain why it can't be generated. \n"
             "4. Please use the most relevant table(s). \n"
             "5. If the question has been asked and answered before, please repeat the answer exactly as it was given before. \n"
-            f"6. Ensure that the output SQL is {self.dialect}-compliant and executable, and free of syntax errors. \n"
+            f"6. Ensure that the output SQL is {self.dialect} SQL Database compliant and executable, and free of syntax errors. \n"
         )
 
         message_log = [self.system_message(initial_prompt)]
@@ -981,7 +983,7 @@ class VannaBase(ABC):
 
             return df
 
-        self.dialect = "Snowflake SQL"
+        self.dialect = "Snowflake"
         self.run_sql = run_sql_snowflake
         self.run_sql_is_set = True
 
@@ -1019,7 +1021,7 @@ class VannaBase(ABC):
         def run_sql_sqlite(sql: str):
             return pd.read_sql_query(sql, conn)
 
-        self.dialect = "SQLite Database"
+        self.dialect = "SQLite"
         self.run_sql = run_sql_sqlite
         self.run_sql_is_set = True
 
@@ -1145,7 +1147,7 @@ class VannaBase(ABC):
                         conn.rollback()
                         raise e
 
-        self.dialect = "PostgreSQL Database"
+        self.dialect = "PostgreSQL"
         self.run_sql_is_set = True
         self.run_sql = run_sql_postgres
 
@@ -1235,7 +1237,7 @@ class VannaBase(ABC):
                     conn.rollback()
                     raise e
 
-        self.dialect = "MySQL Database"
+        self.dialect = "MySQL"
         self.run_sql_is_set = True
         self.run_sql = run_sql_mysql
 
@@ -1315,7 +1317,7 @@ class VannaBase(ABC):
                 except Exception as e:
                     raise e
 
-        self.dialect = "ClickHouse Database"
+        self.dialect = "ClickHouse"
         self.run_sql_is_set = True
         self.run_sql = run_sql_clickhouse
 
@@ -1407,7 +1409,7 @@ class VannaBase(ABC):
                     conn.rollback()
                     raise e
 
-        self.dialect = "Oracle Database"
+        self.dialect = "Oracle"
         self.run_sql_is_set = True
         self.run_sql = run_sql_oracle
 
@@ -1495,7 +1497,7 @@ class VannaBase(ABC):
                 return df
             return None
 
-        self.dialect = "BigQuery SQL"
+        self.dialect = "BigQuery"
         self.run_sql_is_set = True
         self.run_sql = run_sql_bigquery
 
@@ -1544,7 +1546,7 @@ class VannaBase(ABC):
         def run_sql_duckdb(sql: str):
             return conn.query(sql).to_df()
 
-        self.dialect = "DuckDB SQL"
+        self.dialect = "DuckDB"
         self.run_sql = run_sql_duckdb
         self.run_sql_is_set = True
 
@@ -1592,7 +1594,7 @@ class VannaBase(ABC):
 
             raise Exception("Couldn't run sql")
 
-        self.dialect = "T-SQL / Microsoft SQL Server"
+        self.dialect = "Microsoft SQL Server"
         self.run_sql = run_sql_mssql
         self.run_sql_is_set = True
 
@@ -1710,7 +1712,7 @@ class VannaBase(ABC):
             print(e)
             raise e
 
-      self.dialect = "Presto Database"
+      self.dialect = "Presto"
       self.run_sql_is_set = True
       self.run_sql = run_sql_presto
 
@@ -1808,7 +1810,7 @@ class VannaBase(ABC):
             print(e)
             raise e
 
-      self.dialect = "Hive SQL Database"
+      self.dialect = "Hive"
       self.run_sql_is_set = True
       self.run_sql = run_sql_hive
 
@@ -2416,3 +2418,5 @@ class VannaBase(ABC):
             fig.update_layout(template="plotly_dark")
 
         return fig
+
+
