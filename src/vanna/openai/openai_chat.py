@@ -4,13 +4,15 @@ from openai import OpenAI
 
 from ..base import VannaBase
 
+DEFAULT_MODEL = "gpt-3.5-turbo"
 
 class OpenAI_Chat(VannaBase):
     def __init__(self, client=None, config=None):
         VannaBase.__init__(self, config=config)
 
         # default parameters - can be overrided using config
-        self.temperature = 0.7
+        self.config = config        
+        self.temperature = 0.2
 
         if "temperature" in config:
             self.temperature = config["temperature"]
@@ -32,14 +34,16 @@ class OpenAI_Chat(VannaBase):
 
         if client is not None:
             self.client = client
-            return
+        else:
+            if config:
+                api_key=config.get("api_key","")
+            else:
+                api_key=os.getenv("OPENAI_API_KEY")
 
-        if config is None and client is None:
-            self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-            return
+            if not api_key:
+                raise Exception("Missing OPENAI_API_KEY")
 
-        if "api_key" in config:
-            self.client = OpenAI(api_key=config["api_key"])
+            self.client = OpenAI(api_key=api_key)
 
     def system_message(self, message: str) -> any:
         return {"role": "system", "content": message}
@@ -64,7 +68,7 @@ class OpenAI_Chat(VannaBase):
             num_tokens += len(message["content"]) / 4
 
         if kwargs.get("model", None) is not None:
-            model = kwargs.get("model", None)
+            model = kwargs.get("model", DEFAULT_MODEL)
             print(
                 f"Using model {model} for {num_tokens} tokens (approx)"
             )
@@ -109,7 +113,7 @@ class OpenAI_Chat(VannaBase):
             if num_tokens > 3500:
                 model = "gpt-3.5-turbo-16k"
             else:
-                model = "gpt-3.5-turbo"
+                model = DEFAULT_MODEL
 
             print(f"Using model {model} for {num_tokens} tokens (approx)")
             response = self.client.chat.completions.create(
