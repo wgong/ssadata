@@ -183,6 +183,32 @@ def skip_chart(question):
 #=================================
 class VannaBase(ABC):
 
+    SQL_DIALECTS = [
+        "Snowflake",
+        "SQLite",
+        "PostgreSQL",
+        "MySQL",
+        "ClickHouse",
+        "Oracle",
+        "BigQuery",
+        "DuckDB",
+        "Microsoft SQL Server",
+        "Presto",
+        "Hive",
+    ]
+
+    VECTOR_DB_LIST = [
+        "chromadb", 
+        "marqo", 
+        "opensearch", 
+        "pinecone", 
+        "qdrant",
+        "faiss",
+        "milvus",
+        "pgvector",
+        "weaviate",
+    ]
+
     def __init__(self, config=None):
         if config is None:
             config = {}
@@ -1894,7 +1920,8 @@ class VannaBase(ABC):
                 - plotly (tuple)
                 - figure (tuple)
                 - has_error (bool)
-
+                
+            where each tuple has 3 elements (code, ts_delta, err_msg)
         """
         with suppress_warnings_only():
 
@@ -2014,10 +2041,10 @@ class VannaBase(ABC):
                                              print_prompt=print_prompt,
                                              print_response=print_response)
             ts_2 = time.time()
-            del_t = ts_2 - ts_1
+            ts_delta = ts_2 - ts_1
             vn_log(title=LogTag.SHOW_CXT, message=" Context summary")
             display(Code(ctx_msg, language='md'))
-            result_sql = (ctx_msg, del_t, "")
+            result_sql = (ctx_msg, ts_delta, "")
             return AskResult(result_sql, None, None, None, False)   
 
         # ====================
@@ -2028,11 +2055,11 @@ class VannaBase(ABC):
             ts_1 = time.time()
             sql = self.generate_sql(question=question, allow_llm_to_see_data=allow_llm_to_see_data, print_prompt=print_prompt, print_response=print_response, use_latest_message=use_latest_message)
             ts_2 = time.time()
-            del_t = ts_2 - ts_1
+            ts_delta = ts_2 - ts_1
         except Exception as e:
             err_msg_sql = f"{LogTag.ERROR_SQL} Failed to generate SQL for prompt: {question} with the following exception: \n{str(e)}"
             print(err_msg_sql)
-            result_sql = (None, del_t, err_msg_sql)
+            result_sql = (None, ts_delta, err_msg_sql)
             return AskResult(result_sql, None, None, None, True)
 
         if 'intermediate_sql' in sql or 'final_sql' in sql:
@@ -2041,14 +2068,14 @@ class VannaBase(ABC):
         if not sql.strip().lower().startswith("select") and \
             not sql.strip().lower().startswith("with"):
             err_msg_sql = f"{LogTag.ERROR_SQL} the generated SQL : {sql}\n does not starts with ('select','with')"
-            result_sql = (sql, del_t, err_msg_sql)
+            result_sql = (sql, ts_delta, err_msg_sql)
             return AskResult(result_sql, None, None, None, True)
 
         if HAS_IPYTHON and print_results:
             try:
                 vn_log(title=LogTag.SHOW_SQL, message="generated SQL statement")
                 display(Code(sql, language='sql'))
-                result_sql = (sql, del_t, None)
+                result_sql = (sql, ts_delta, None)
             except Exception as e:
                 err_msg_sql = f"{LogTag.ERROR} Failed to display SQL code: {sql} with the following exception: \n{str(e)}"
                 print(err_msg_sql)
@@ -2060,7 +2087,7 @@ class VannaBase(ABC):
         if self.run_sql_is_set is False:
             err_msg_df = f"{LogTag.ERROR} If you want to run the SQL query, connect to a database first. See here: https://vanna.ai/docs/databases.html"
             print(err_msg_df)
-            result_df = (sql, del_t, err_msg_df)
+            result_df = (sql, ts_delta, err_msg_df)
             return AskResult(result_sql, result_df, None, None, True)
 
         # append limit-clause 
@@ -2074,11 +2101,11 @@ class VannaBase(ABC):
             ts_1 = time.time()
             df = self.run_sql(sql)
             ts_2 = time.time()
-            del_t = ts_2 - ts_1
-            result_df = (df, del_t, None)
+            ts_delta = ts_2 - ts_1
+            result_df = (df, ts_delta, None)
         except Exception as e:
             err_msg_df = f"{LogTag.ERROR_DB} Failed to execute SQL: {sql}\n {str(e)}"
-            result_df = (None, del_t, err_msg_df)
+            result_df = (None, ts_delta, err_msg_df)
             return AskResult(result_sql, result_df, None, None, True)
 
         if HAS_IPYTHON and print_results:
@@ -2092,7 +2119,7 @@ class VannaBase(ABC):
             self.add_question_sql(question=question, sql=sql)
         else:
             err_msg_df = f"{LogTag.ERROR_DF} Invalid dataframe"
-            result_df = (df, del_t, err_msg_df)
+            result_df = (df, ts_delta, err_msg_df)
             return AskResult(result_sql, result_df, None, None, True)
         
         # look for words to skip chart
@@ -2115,13 +2142,13 @@ class VannaBase(ABC):
                 df_metadata=f"Running df.dtypes gives:\n {df.dtypes}",
             )
             ts_2 = time.time()
-            del_t = ts_2 - ts_1
+            ts_delta = ts_2 - ts_1
 
             if HAS_IPYTHON and print_results:
                 vn_log(title=LogTag.SHOW_PYTHON, message="generated Plotly code")
                 display(Code(plotly_code, language='python'))
 
-            result_py = (plotly_code, del_t, "")
+            result_py = (plotly_code, ts_delta, "")
         except Exception as e:
             err_msg_py = f"{LogTag.ERROR_VIZ} Failed to generate plotly code:\n str(e)"
             result_py = (None, 0.0, err_msg_py)
@@ -2132,14 +2159,14 @@ class VannaBase(ABC):
             ts_1 = time.time()
             fig = self.get_plotly_figure(plotly_code=plotly_code, df=df)
             ts_2 = time.time()
-            del_t = ts_2 - ts_1
+            ts_delta = ts_2 - ts_1
 
             if HAS_IPYTHON and print_results:
                 img_bytes = fig.to_image(format="png", scale=2)               
                 display(Image(img_bytes))
                 # fig.show()
 
-            result_fig = (fig, del_t, "")
+            result_fig = (fig, ts_delta, "")
         except Exception as e:
             err_msg_fig = f"{LogTag.ERROR_VIZ} Failed to visualize df with plotly:\n str(e)"
             result_fig = (None, 0.0, err_msg_fig)
