@@ -10,7 +10,8 @@ except ImportError:
 TEMPERATURE = 0.0
 MAX_TOKENS = 1000
 
-BEDROCK_CLIENT = boto3.client(service_name="bedrock-runtime")
+# , region="us-east-1"
+# BEDROCK_CLIENT = boto3.client(service_name="bedrock-runtime")
 
 class Bedrock_Converse(VannaBase):
     def __init__(self, client=None, config=None):
@@ -24,7 +25,7 @@ class Bedrock_Converse(VannaBase):
             # raise ValueError(
             #     "A valid Bedrock runtime client must be provided to invoke Bedrock models"
             # )
-            self.client = BEDROCK_CLIENT
+            self.client = boto3.client(service_name="bedrock-runtime")
         else:
             self.client = client
         
@@ -103,7 +104,7 @@ class Bedrock_Chat(VannaBase):
             # raise ValueError(
             #     "A valid Bedrock runtime client must be provided to invoke Bedrock models"
             # )
-            self.client = BEDROCK_CLIENT
+            self.client = boto3.client(service_name="bedrock-runtime")
         else:
             self.client = client
         

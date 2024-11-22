@@ -4,13 +4,15 @@ import anthropic
 
 from ..base import VannaBase
 
+DEFAULT_MODEL = "claude-3-sonnet-20240229"
 
 class Anthropic_Chat(VannaBase):
     def __init__(self, client=None, config=None):
         VannaBase.__init__(self, config=config)
       
         # default parameters - can be overrided using config
-        self.temperature = 0.7
+        self.config = config
+        self.temperature = 0.2
         self.max_tokens = 500
 
         if "temperature" in config:
@@ -21,14 +23,16 @@ class Anthropic_Chat(VannaBase):
 
         if client is not None:
             self.client = client
-            return
+        else:
+            if config:
+                api_key=config.get("api_key","")
+            else:
+                api_key=os.getenv("ANTHROPIC_API_KEY")
 
-        if config is None and client is None:
-            self.client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-            return
-      
-        if "api_key" in config:
-            self.client = anthropic.Anthropic(api_key=config["api_key"])
+            if not api_key:
+                raise Exception("Missing ANTHROPIC_API_KEY")
+
+            self.client = anthropic.Anthropic(api_key=api_key)
 
     def system_message(self, message: str) -> any:
         return {"role": "system", "content": message}

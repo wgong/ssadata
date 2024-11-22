@@ -116,10 +116,11 @@ except Exception as e:
     HAS_IPYTHON = False
 
 class AskResult(NamedTuple):
-    sql: Optional[str]
-    df: Optional[pd.DataFrame]
-    fig: Optional[Figure.Figure]
-    err_msg: Optional[str]
+    sql: Optional[Tuple[Optional[str], float, Optional[str]]]
+    df: Optional[Tuple[Optional[pd.DataFrame], float, Optional[str]]]
+    py: Optional[Tuple[Optional[str], float, Optional[str]]]
+    fig: Optional[Tuple[Optional[Figure.Figure], float, Optional[str]]]
+    has_error: bool
 
 class LogTag:
     ERROR = "[ERROR]"
@@ -140,6 +141,23 @@ class LogTag:
     EXTRACTED_SQL = "EXTRACTED SQL"
     RETRY = "RETRY"
     
+def collect_err_msg(answer):
+    err_msg = ""
+    has_error_sql = has_error_df = has_error_py = has_error_fig = False
+    if answer.sql and answer.sql[2]:
+        has_error_sql = LogTag.ERROR_DB in answer.sql[2]
+        err_msg += answer.sql[2]
+    if answer.df and answer.df[2]:
+        has_error_df = LogTag.ERROR_DF in answer.df[2]
+        err_msg += answer.df[2]
+    if answer.py and answer.py[2]:
+        has_error_py = LogTag.ERROR_VIZ in answer.py[2]
+        err_msg += answer.py[2]
+    if answer.fig and answer.fig[2]:
+        has_error_fig = LogTag.ERROR_DF in answer.fig[2]
+        err_msg += answer.fig[2]
+    return err_msg, any((has_error_sql, has_error_df, has_error_py, has_error_fig))
+
 #=================================
 # helper functions
 #=================================
@@ -164,6 +182,33 @@ def skip_chart(question):
 # main functionality
 #=================================
 class VannaBase(ABC):
+
+    SQL_DIALECTS = [
+        "Snowflake",
+        "SQLite",
+        "PostgreSQL",
+        "MySQL",
+        "ClickHouse",
+        "Oracle",
+        "BigQuery",
+        "DuckDB",
+        "Microsoft SQL Server",
+        "Presto",
+        "Hive",
+    ]
+
+    VECTOR_DB_LIST = [
+        "chromadb", 
+        "marqo", 
+        "opensearch", 
+        "pinecone", 
+        "qdrant",
+        "faiss",
+        "milvus",
+        "pgvector",
+        "weaviate",
+    ]
+
     def __init__(self, config=None):
         if config is None:
             config = {}
@@ -748,7 +793,7 @@ class VannaBase(ABC):
         """
 
         if initial_prompt is None:
-            initial_prompt = f"You are a {self.dialect} expert. " + \
+            initial_prompt = f"You are a {self.dialect} SQL Database expert. " + \
             "Please help to generate a SQL query to answer the question. Your response should ONLY be based on the given context and follow the response guidelines and format instructions. "
 
         initial_prompt = self.add_ddl_to_prompt(
@@ -769,7 +814,7 @@ class VannaBase(ABC):
             "3. If the provided context is insufficient, please explain why it can't be generated. \n"
             "4. Please use the most relevant table(s). \n"
             "5. If the question has been asked and answered before, please repeat the answer exactly as it was given before. \n"
-            f"6. Ensure that the output SQL is {self.dialect}-compliant and executable, and free of syntax errors. \n"
+            f"6. Ensure that the output SQL is {self.dialect} SQL Database compliant and executable, and free of syntax errors. \n"
         )
 
         message_log = [self.system_message(initial_prompt)]
@@ -981,7 +1026,7 @@ class VannaBase(ABC):
 
             return df
 
-        self.dialect = "Snowflake SQL"
+        self.dialect = "Snowflake"
         self.run_sql = run_sql_snowflake
         self.run_sql_is_set = True
 
@@ -1019,7 +1064,7 @@ class VannaBase(ABC):
         def run_sql_sqlite(sql: str):
             return pd.read_sql_query(sql, conn)
 
-        self.dialect = "SQLite Database"
+        self.dialect = "SQLite"
         self.run_sql = run_sql_sqlite
         self.run_sql_is_set = True
 
@@ -1145,7 +1190,7 @@ class VannaBase(ABC):
                         conn.rollback()
                         raise e
 
-        self.dialect = "PostgreSQL Database"
+        self.dialect = "PostgreSQL"
         self.run_sql_is_set = True
         self.run_sql = run_sql_postgres
 
@@ -1235,7 +1280,7 @@ class VannaBase(ABC):
                     conn.rollback()
                     raise e
 
-        self.dialect = "MySQL Database"
+        self.dialect = "MySQL"
         self.run_sql_is_set = True
         self.run_sql = run_sql_mysql
 
@@ -1315,7 +1360,7 @@ class VannaBase(ABC):
                 except Exception as e:
                     raise e
 
-        self.dialect = "ClickHouse Database"
+        self.dialect = "ClickHouse"
         self.run_sql_is_set = True
         self.run_sql = run_sql_clickhouse
 
@@ -1407,7 +1452,7 @@ class VannaBase(ABC):
                     conn.rollback()
                     raise e
 
-        self.dialect = "Oracle Database"
+        self.dialect = "Oracle"
         self.run_sql_is_set = True
         self.run_sql = run_sql_oracle
 
@@ -1495,7 +1540,7 @@ class VannaBase(ABC):
                 return df
             return None
 
-        self.dialect = "BigQuery SQL"
+        self.dialect = "BigQuery"
         self.run_sql_is_set = True
         self.run_sql = run_sql_bigquery
 
@@ -1544,7 +1589,7 @@ class VannaBase(ABC):
         def run_sql_duckdb(sql: str):
             return conn.query(sql).to_df()
 
-        self.dialect = "DuckDB SQL"
+        self.dialect = "DuckDB"
         self.run_sql = run_sql_duckdb
         self.run_sql_is_set = True
 
@@ -1592,7 +1637,7 @@ class VannaBase(ABC):
 
             raise Exception("Couldn't run sql")
 
-        self.dialect = "T-SQL / Microsoft SQL Server"
+        self.dialect = "Microsoft SQL Server"
         self.run_sql = run_sql_mssql
         self.run_sql_is_set = True
 
@@ -1710,7 +1755,7 @@ class VannaBase(ABC):
             print(e)
             raise e
 
-      self.dialect = "Presto Database"
+      self.dialect = "Presto"
       self.run_sql_is_set = True
       self.run_sql = run_sql_presto
 
@@ -1808,7 +1853,7 @@ class VannaBase(ABC):
             print(e)
             raise e
 
-      self.dialect = "Hive SQL Database"
+      self.dialect = "Hive"
       self.run_sql_is_set = True
       self.run_sql = run_sql_hive
 
@@ -1870,11 +1915,13 @@ class VannaBase(ABC):
 
         Returns:
             AskResult: A named tuple of 
-                - The SQL query (str)
-                - df of the SQL query (pd.DataFrame)
-                - plotly figure (plotly.graph_objs.Figure)
-                - error msg (str)
-
+                - SQL query (tuple)
+                - df (tuple)
+                - plotly (tuple)
+                - figure (tuple)
+                - has_error (bool)
+                
+            where each tuple has 3 elements (code, ts_delta, err_msg)
         """
         with suppress_warnings_only():
 
@@ -1891,13 +1938,11 @@ class VannaBase(ABC):
                             print_response=print_response, 
                             use_latest_message=use_latest_message,
                             semantic_search=semantic_search)
-            if (not answer.err_msg) or (LogTag.ERROR_SQL not in answer.err_msg) and (LogTag.ERROR_DB not in answer.err_msg):
+            err_msg, has_error = collect_err_msg(answer)
+            if semantic_search or ((not answer.has_error) and (not has_error)):
                 return answer
 
-            if semantic_search:
-                return answer
-
-            if (answer.err_msg and "unknown error was encountered" in answer.err_msg):
+            if (answer.has_error and "unknown error was encountered" in err_msg):
                 # re-prompt
                 answer = self.ask(question=question,
                                 print_results=print_results, 
@@ -1908,17 +1953,17 @@ class VannaBase(ABC):
                                 print_prompt=print_prompt, 
                                 print_response=print_response, 
                                 use_latest_message=use_latest_message)
-
-                if not answer.err_msg or (LogTag.ERROR_SQL not in answer.err_msg) and (LogTag.ERROR_DB not in answer.err_msg):
+                err_msg, has_error = collect_err_msg(answer)
+                if not answer.has_error and (not has_error):
                     return answer
 
             # re-prompt
             for i_retry in range(retry_num):
                 vn_log(title=LogTag.RETRY, message=f"***** {i_retry+1} *****")
                 question = f"""
-                    For this question: {question}, 
-                    your generated SQL statement: {answer.sql} results in the following error: {answer.err_msg} .
-                    Can you please fix this error and re-generate the SQL statement?
+                    Generating SQL for this question: {question}
+                    results in the following error: {err_msg} .
+                    Can you try to fix the error and re-generate the SQL statement?
                 """           
                 answer = self.ask(question=question,
                                 print_results=print_results, 
@@ -1929,7 +1974,7 @@ class VannaBase(ABC):
                                 print_prompt=print_prompt, 
                                 print_response=print_response, 
                                 use_latest_message=use_latest_message)
-                if (not answer.err_msg) or (LogTag.ERROR_SQL not in answer.err_msg) and (LogTag.ERROR_DB not in answer.err_msg):
+                if not answer.has_error and (not has_error):
                     break
 
                 time.sleep(sleep_sec)
@@ -1973,62 +2018,77 @@ class VannaBase(ABC):
 
         Returns:
             AskResult: A named tuple of 
-                - The SQL query (str)
-                - df of the SQL query (pd.DataFrame)
-                - plotly figure (plotly.graph_objs.Figure)
-                - error msg (str)
+                - SQL query (tuple)
+                - df (tuple)
+                - plotly (tuple)
+                - figure (tuple)
+                - has_error (bool)
         """
-        sql = None
-        df = None
-        fig = None
-        err_msg = None
+        result_sql = None
+        result_df = None
+        result_py = None
+        result_fig = None
         if not question:
             # question = input("Enter a question: ")
             err_msg = f"{LogTag.ERROR_INPUT} Prompt question is missing"
-            return AskResult(None, None, None, err_msg)
+            result_sql = (None, 0.0, err_msg)
+            return AskResult(result_sql, None, None, None, True)
 
         if semantic_search:
             # answer schema-related prompt
+            ts_1 = time.time()
             ctx_msg = self.summarize_context(question=question,
                                              print_prompt=print_prompt,
                                              print_response=print_response)
+            ts_2 = time.time()
+            ts_delta = ts_2 - ts_1
             vn_log(title=LogTag.SHOW_CXT, message=" Context summary")
             display(Code(ctx_msg, language='md'))
-            return AskResult(ctx_msg, None, None, None)   
+            result_sql = (ctx_msg, ts_delta, "")
+            return AskResult(result_sql, None, None, None, False)   
 
         # ====================
         # Generate SQL
         # ====================
+        err_msg_sql = ""
         try:
+            ts_1 = time.time()
             sql = self.generate_sql(question=question, allow_llm_to_see_data=allow_llm_to_see_data, print_prompt=print_prompt, print_response=print_response, use_latest_message=use_latest_message)
+            ts_2 = time.time()
+            ts_delta = ts_2 - ts_1
         except Exception as e:
-            err_msg = f"{LogTag.ERROR_SQL} Failed to generate SQL for prompt: {question} with the following exception: \n{str(e)}"
-            print(err_msg)
-            return AskResult(None, None, None, err_msg)
+            err_msg_sql = f"{LogTag.ERROR_SQL} Failed to generate SQL for prompt: {question} with the following exception: \n{str(e)}"
+            print(err_msg_sql)
+            result_sql = (None, ts_delta, err_msg_sql)
+            return AskResult(result_sql, None, None, None, True)
 
         if 'intermediate_sql' in sql or 'final_sql' in sql:
             sql = sql.replace('intermediate_sql', '').replace('final_sql', '')
 
         if not sql.strip().lower().startswith("select") and \
             not sql.strip().lower().startswith("with"):
-            err_msg = f"{LogTag.ERROR_SQL} the generated SQL : {sql}\n does not starts with ('select','with')"
-            return AskResult(sql, None, None, err_msg)
+            err_msg_sql = f"{LogTag.ERROR_SQL} the generated SQL : {sql}\n does not starts with ('select','with')"
+            result_sql = (sql, ts_delta, err_msg_sql)
+            return AskResult(result_sql, None, None, None, True)
 
         if HAS_IPYTHON and print_results:
             try:
                 vn_log(title=LogTag.SHOW_SQL, message="generated SQL statement")
                 display(Code(sql, language='sql'))
+                result_sql = (sql, ts_delta, None)
             except Exception as e:
-                err_msg = f"{LogTag.ERROR} Failed to display SQL code: {sql} with the following exception: \n{str(e)}"
-                print(err_msg)
+                err_msg_sql = f"{LogTag.ERROR} Failed to display SQL code: {sql} with the following exception: \n{str(e)}"
+                print(err_msg_sql)
 
         # ====================
         # Execute SQL
         # ====================
+        err_msg_df = ""
         if self.run_sql_is_set is False:
-            err_msg = f"{LogTag.ERROR} If you want to run the SQL query, connect to a database first. See here: https://vanna.ai/docs/databases.html"
-            print(err_msg)
-            return AskResult(sql, None, None, err_msg)
+            err_msg_df = f"{LogTag.ERROR} If you want to run the SQL query, connect to a database first. See here: https://vanna.ai/docs/databases.html"
+            print(err_msg_df)
+            result_df = (sql, ts_delta, err_msg_df)
+            return AskResult(result_sql, result_df, None, None, True)
 
         # append limit-clause 
         sql = sql.strip()
@@ -2038,10 +2098,15 @@ class VannaBase(ABC):
             sql += f" LIMIT {sql_row_limit}"
 
         try:
+            ts_1 = time.time()
             df = self.run_sql(sql)
+            ts_2 = time.time()
+            ts_delta = ts_2 - ts_1
+            result_df = (df, ts_delta, None)
         except Exception as e:
-            err_msg = f"{LogTag.ERROR_DB} Failed to execute SQL: {sql}\n {str(e)}"
-            return AskResult(sql, None, None, err_msg)
+            err_msg_df = f"{LogTag.ERROR_DB} Failed to execute SQL: {sql}\n {str(e)}"
+            result_df = (None, ts_delta, err_msg_df)
+            return AskResult(result_sql, result_df, None, None, True)
 
         if HAS_IPYTHON and print_results:
             try:
@@ -2053,8 +2118,9 @@ class VannaBase(ABC):
         if df is not None and not df.empty and len(df) > 0 and auto_train:
             self.add_question_sql(question=question, sql=sql)
         else:
-            err_msg = f"{LogTag.ERROR_DF} Invalid dataframe"
-            return AskResult(sql, None, None, err_msg)
+            err_msg_df = f"{LogTag.ERROR_DF} Invalid dataframe"
+            result_df = (df, ts_delta, err_msg_df)
+            return AskResult(result_sql, result_df, None, None, True)
         
         # look for words to skip chart
         if visualize and skip_chart(question):
@@ -2062,36 +2128,53 @@ class VannaBase(ABC):
 
         # Only generate plotly code if visualize is True and df has data
         if not visualize:
-            return AskResult(sql, df, None, None)
+            return AskResult(result_sql, result_df, None, None, False)
 
         # ====================
         # Visualize dataframe
         # ====================
-        err_msg = None
+        err_msg_py = ""
         try:
+            ts_1 = time.time()
             plotly_code = self.generate_plotly_code(
                 question=question,
                 sql=sql,
                 df_metadata=f"Running df.dtypes gives:\n {df.dtypes}",
             )
-            fig = self.get_plotly_figure(plotly_code=plotly_code, df=df)
+            ts_2 = time.time()
+            ts_delta = ts_2 - ts_1
 
             if HAS_IPYTHON and print_results:
-                try:
-                    vn_log(title=LogTag.SHOW_PYTHON, message="generated Plotly code")
-                    display(Code(plotly_code, language='python'))
+                vn_log(title=LogTag.SHOW_PYTHON, message="generated Plotly code")
+                display(Code(plotly_code, language='python'))
 
-                    img_bytes = fig.to_image(format="png", scale=2)
-                    
-                    display(Image(img_bytes))
-                except Exception as e:
-                    fig.show()
+            result_py = (plotly_code, ts_delta, "")
         except Exception as e:
-            # # Print stack trace
-            # traceback.print_exc()
-            err_msg = f"{LogTag.ERROR_VIZ} Failed to visualize df with plotly code:\n str(e)"
+            err_msg_py = f"{LogTag.ERROR_VIZ} Failed to generate plotly code:\n str(e)"
+            result_py = (None, 0.0, err_msg_py)
+            return AskResult(result_sql, result_df, result_py, None, True)
 
-        return AskResult(sql, df, fig, err_msg)
+        err_msg_fig = ""
+        try:
+            ts_1 = time.time()
+            fig = self.get_plotly_figure(plotly_code=plotly_code, df=df)
+            ts_2 = time.time()
+            ts_delta = ts_2 - ts_1
+
+            if HAS_IPYTHON and print_results:
+                img_bytes = fig.to_image(format="png", scale=2)               
+                display(Image(img_bytes))
+                # fig.show()
+
+            result_fig = (fig, ts_delta, "")
+        except Exception as e:
+            err_msg_fig = f"{LogTag.ERROR_VIZ} Failed to visualize df with plotly:\n str(e)"
+            result_fig = (None, 0.0, err_msg_fig)
+            return AskResult(result_sql, result_df, result_py, result_fig, True)
+
+        # final return
+        has_error = True if any((err_msg_sql, err_msg_df, err_msg_py, err_msg_fig)) else False
+        return AskResult(result_sql, result_df, result_py, result_fig, has_error)
 
     def train(
         self,
@@ -2416,3 +2499,5 @@ class VannaBase(ABC):
             fig.update_layout(template="plotly_dark")
 
         return fig
+
+
