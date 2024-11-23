@@ -1,3 +1,8 @@
+"""
+Features
+- [2024-11-23] 
+    - add dataset concept support in embedding
+"""
 import json
 from typing import List
 
@@ -63,45 +68,94 @@ class ChromaDB_VectorStore(VannaBase):
         return embedding
 
     def add_question_sql(self, question: str, sql: str, **kwargs) -> str:
-        question_sql_json = json.dumps(
-            {
-                "question": question,
-                "sql": sql,
-            },
-            ensure_ascii=False,
-        )
-        id = deterministic_uuid(question_sql_json) + "-sql"
-        self.sql_collection.add(
-            documents=question_sql_json,
-            embeddings=self.generate_embedding(question_sql_json),
-            ids=id,
-        )
+        """Adds a question-SQL pair to the collection with dataset metadata.
+        
+        Uses ensure_ascii=False in json.dumps() to properly handle multi-lingual content.
+        This allows storing questions and SQL in any language (Chinese, Japanese, Arabic, etc.)
+        without converting them to Unicode escape sequences (\uXXXX), making the stored
+        documents more readable and efficient.
+        
+        Args:
+            question (str): The natural language question
+            sql (str): The corresponding SQL query
+            **kwargs: Additional arguments, supports 'dataset' key with default value "default"
+        
+        Returns:
+            str: The generated document ID
+        """
 
-        return id
+        doc_type = "sql"
+        document = {
+            "dataset": kwargs.get("dataset", "default"),
+            "question": question,
+            doc_type: sql,
+        }
+    
+        # Serialize once and reuse
+        doc_json = json.dumps(document, ensure_ascii=False)
+        
+        # Generate a deterministic ID
+        doc_id = f"{deterministic_uuid(doc_json)}-{doc_type}"
+
+        # Add to collection with single document
+        self.sql_collection.add(
+            documents=doc_json,
+            embeddings=self.generate_embedding(doc_json),
+            ids=doc_id
+        )
+        
+        return doc_id
 
     def add_ddl(self, ddl: str, **kwargs) -> str:
-        id = deterministic_uuid(ddl) + "-ddl"
-        self.ddl_collection.add(
-            documents=ddl,
-            embeddings=self.generate_embedding(ddl),
-            ids=id,
+        doc_type = "ddl"
+        document = {
+            "dataset": kwargs.get("dataset", "default"),
+            doc_type: ddl,
+        }
+    
+        ## Serialize once and reuse
+        doc_json = json.dumps(document, ensure_ascii=False)
+        
+        # Generate a deterministic ID
+        doc_id = f"{deterministic_uuid(doc_json)}-{doc_type}"
+
+        # Add to collection with single document
+        self.sql_collection.add(
+            documents=doc_json,
+            embeddings=self.generate_embedding(doc_json),
+            ids=doc_id
         )
-        return id
+        
+        return doc_id        
+
 
     def add_documentation(self, documentation: str, **kwargs) -> str:
-        id = deterministic_uuid(documentation) + "-doc"
-        self.documentation_collection.add(
-            documents=documentation,
-            embeddings=self.generate_embedding(documentation),
-            ids=id,
+        doc_type = "documentation"
+        document = {
+            "dataset": kwargs.get("dataset", "default"),
+            doc_type: documentation,
+        }
+    
+        # Serialize once and reuse
+        doc_json = json.dumps(document, ensure_ascii=False)
+        
+        # Generate a deterministic ID
+        doc_id = f"{deterministic_uuid(doc_json)}-doc"
+
+        # Add to collection with single document
+        self.sql_collection.add(
+            documents=doc_json,
+            embeddings=self.generate_embedding(doc_json),
+            ids=doc_id
         )
-        return id
+        
+        return doc_id   
 
     def get_training_data(self, **kwargs) -> pd.DataFrame:
-        sql_data = self.sql_collection.get()
-
         df = pd.DataFrame()
 
+        # get question/SQL pair
+        sql_data = self.sql_collection.get()
         if sql_data is not None:
             # Extract the documents and ids
             documents = [json.loads(doc) for doc in sql_data["documents"]]
@@ -111,17 +165,16 @@ class ChromaDB_VectorStore(VannaBase):
             df_sql = pd.DataFrame(
                 {
                     "id": ids,
+                    "dataset": [doc["dataset"] for doc in documents],
                     "question": [doc["question"] for doc in documents],
                     "content": [doc["sql"] for doc in documents],
                 }
             )
-
             df_sql["training_data_type"] = "sql"
-
             df = pd.concat([df, df_sql])
 
+        # get DDL metadata
         ddl_data = self.ddl_collection.get()
-
         if ddl_data is not None:
             # Extract the documents and ids
             documents = [doc for doc in ddl_data["documents"]]
@@ -131,17 +184,16 @@ class ChromaDB_VectorStore(VannaBase):
             df_ddl = pd.DataFrame(
                 {
                     "id": ids,
+                    "dataset": [doc["dataset"] for doc in documents],
                     "question": [None for doc in documents],
-                    "content": [doc for doc in documents],
+                    "content": [doc["ddl"] for doc in documents],
                 }
             )
-
             df_ddl["training_data_type"] = "ddl"
-
             df = pd.concat([df, df_ddl])
 
+        # get bus_term metadata
         doc_data = self.documentation_collection.get()
-
         if doc_data is not None:
             # Extract the documents and ids
             documents = [doc for doc in doc_data["documents"]]
@@ -151,13 +203,12 @@ class ChromaDB_VectorStore(VannaBase):
             df_doc = pd.DataFrame(
                 {
                     "id": ids,
+                    "dataset": [doc["dataset"] for doc in documents],
                     "question": [None for doc in documents],
-                    "content": [doc for doc in documents],
+                    "content": [doc["documentation"] for doc in documents],
                 }
             )
-
             df_doc["training_data_type"] = "documentation"
-
             df = pd.concat([df, df_doc])
 
         return df

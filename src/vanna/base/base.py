@@ -2051,6 +2051,7 @@ class VannaBase(ABC):
         # Generate SQL
         # ====================
         err_msg_sql = ""
+        ts_delta = 0.0
         try:
             ts_1 = time.time()
             sql = self.generate_sql(question=question, allow_llm_to_see_data=allow_llm_to_see_data, print_prompt=print_prompt, print_response=print_response, use_latest_message=use_latest_message)
@@ -2084,6 +2085,7 @@ class VannaBase(ABC):
         # Execute SQL
         # ====================
         err_msg_df = ""
+        ts_delta = 0.0
         if self.run_sql_is_set is False:
             err_msg_df = f"{LogTag.ERROR} If you want to run the SQL query, connect to a database first. See here: https://vanna.ai/docs/databases.html"
             print(err_msg_df)
@@ -2134,6 +2136,7 @@ class VannaBase(ABC):
         # Visualize dataframe
         # ====================
         err_msg_py = ""
+        ts_delta = 0.0
         try:
             ts_1 = time.time()
             plotly_code = self.generate_plotly_code(
@@ -2151,10 +2154,11 @@ class VannaBase(ABC):
             result_py = (plotly_code, ts_delta, "")
         except Exception as e:
             err_msg_py = f"{LogTag.ERROR_VIZ} Failed to generate plotly code:\n str(e)"
-            result_py = (None, 0.0, err_msg_py)
+            result_py = (None, ts_delta, err_msg_py)
             return AskResult(result_sql, result_df, result_py, None, True)
 
         err_msg_fig = ""
+        ts_delta = 0.0
         try:
             ts_1 = time.time()
             fig = self.get_plotly_figure(plotly_code=plotly_code, df=df)
@@ -2169,7 +2173,7 @@ class VannaBase(ABC):
             result_fig = (fig, ts_delta, "")
         except Exception as e:
             err_msg_fig = f"{LogTag.ERROR_VIZ} Failed to visualize df with plotly:\n str(e)"
-            result_fig = (None, 0.0, err_msg_fig)
+            result_fig = (None, ts_delta, err_msg_fig)
             return AskResult(result_sql, result_df, result_py, result_fig, True)
 
         # final return
