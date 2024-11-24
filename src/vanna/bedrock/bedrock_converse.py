@@ -1,17 +1,21 @@
 from ..base import VannaBase
 import json 
 
-try:
-    import boto3
-    from botocore.exceptions import ClientError
-except ImportError:
-    raise ImportError("Please install boto3 and botocore to use Amazon Bedrock models")
 
 TEMPERATURE = 0.0
 MAX_TOKENS = 1000
 
 # , region="us-east-1"
-# BEDROCK_CLIENT = boto3.client(service_name="bedrock-runtime")
+
+def create_bedrock_client():
+    try:
+        import boto3
+        from botocore.exceptions import ClientError
+    except ImportError:
+        raise ImportError("Please install boto3 and botocore to use Amazon Bedrock models")
+
+    BEDROCK_CLIENT = boto3.client(service_name="bedrock-runtime")
+    return BEDROCK_CLIENT
 
 class Bedrock_Converse(VannaBase):
     def __init__(self, client=None, config=None):
@@ -25,7 +29,7 @@ class Bedrock_Converse(VannaBase):
             # raise ValueError(
             #     "A valid Bedrock runtime client must be provided to invoke Bedrock models"
             # )
-            self.client = boto3.client(service_name="bedrock-runtime")
+            self.client = create_bedrock_client()
         else:
             self.client = client
         
@@ -104,7 +108,7 @@ class Bedrock_Chat(VannaBase):
             # raise ValueError(
             #     "A valid Bedrock runtime client must be provided to invoke Bedrock models"
             # )
-            self.client = boto3.client(service_name="bedrock-runtime")
+            self.client = create_bedrock_client()
         else:
             self.client = client
         

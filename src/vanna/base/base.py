@@ -2187,6 +2187,7 @@ class VannaBase(ABC):
         ddl: str = None,
         documentation: str = None,
         plan: TrainingPlan = None,
+        dataset: str = "default",
     ) -> str:
         """
         **Example:**
@@ -2208,32 +2209,28 @@ class VannaBase(ABC):
             documentation (str): The documentation to train on.
             plan (TrainingPlan): The training plan to train on.
         """
-
-        if question and not sql:
-            raise ValidationError("Please also provide a SQL query")
+        DEBUG_FLAG=False
+        if ddl:
+            if DEBUG_FLAG: print("\n\nAdding ddl:", ddl)
+            return self.add_ddl(strip_brackets(ddl), dataset=dataset)
 
         if documentation:
-            print("Adding documentation....")
-            return self.add_documentation(documentation)
+            if DEBUG_FLAG: print("\n\nAdding documentation....")
+            return self.add_documentation(documentation, dataset=dataset)
 
-        if sql:
-            if question is None:
-                question = self.generate_question(sql)
-                print("Question generated with sql:", question, "\nAdding SQL...")
-            return self.add_question_sql(question=question, sql=sql)
-
-        if ddl:
-            print("Adding ddl:", ddl)
-            return self.add_ddl(strip_brackets(ddl))
+        if question and sql:
+            if DEBUG_FLAG: print("\n\nAdding question/sql pair ....")
+            return self.add_question_sql(question=question, sql=sql, dataset=dataset)
 
         if plan:
+            if DEBUG_FLAG: print("\n\nAdding plan ....")
             for item in plan._plan:
                 if item.item_type == TrainingPlanItem.ITEM_TYPE_DDL:
-                    self.add_ddl(item.item_value)
+                    self.add_ddl(item.item_value, dataset=dataset)
                 elif item.item_type == TrainingPlanItem.ITEM_TYPE_IS:
-                    self.add_documentation(item.item_value)
+                    self.add_documentation(item.item_value, dataset=dataset)
                 elif item.item_type == TrainingPlanItem.ITEM_TYPE_SQL:
-                    self.add_question_sql(question=item.item_name, sql=item.item_value)
+                    self.add_question_sql(question=item.item_name, sql=item.item_value, dataset=dataset)
 
     def _get_databases(self) -> List[str]:
         try:

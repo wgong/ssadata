@@ -16,6 +16,23 @@ from ..utils import deterministic_uuid
 
 default_ef = embedding_functions.DefaultEmbeddingFunction()
 
+def filter_collection_by_dataset(dataset, train_data):
+    ids = []
+    documents = []
+    try:
+        doc_list = train_data.get("documents", [])
+        id_list = train_data.get("ids", [])
+        # print(f"doc_list = {doc_list}")
+        for n, doc in enumerate(doc_list):
+            dic = json.loads(doc)
+            if dic.get("dataset", "") == dataset:
+                ids.append(id_list[n])
+                documents.append(dic)
+    except Exception as e:
+        print(f"[ERROR] filter_collection_by_dataset():\n {str(e)}")
+    return ids, documents
+
+
 
 class ChromaDB_VectorStore(VannaBase):
     def __init__(self, config=None):
@@ -72,7 +89,7 @@ class ChromaDB_VectorStore(VannaBase):
         
         Uses ensure_ascii=False in json.dumps() to properly handle multi-lingual content.
         This allows storing questions and SQL in any language (Chinese, Japanese, Arabic, etc.)
-        without converting them to Unicode escape sequences (\uXXXX), making the stored
+        without converting them to Unicode escape sequences, making the stored
         documents more readable and efficient.
         
         Args:
@@ -83,6 +100,8 @@ class ChromaDB_VectorStore(VannaBase):
         Returns:
             str: The generated document ID
         """
+        if question is None or not question.strip() or sql is None or not sql.strip():
+            return         
 
         doc_type = "sql"
         document = {
@@ -107,6 +126,9 @@ class ChromaDB_VectorStore(VannaBase):
         return doc_id
 
     def add_ddl(self, ddl: str, **kwargs) -> str:
+        if ddl is None or not ddl.strip():
+            return 
+                
         doc_type = "ddl"
         document = {
             "dataset": kwargs.get("dataset", "default"),
@@ -120,7 +142,7 @@ class ChromaDB_VectorStore(VannaBase):
         doc_id = f"{deterministic_uuid(doc_json)}-{doc_type}"
 
         # Add to collection with single document
-        self.sql_collection.add(
+        self.ddl_collection.add(
             documents=doc_json,
             embeddings=self.generate_embedding(doc_json),
             ids=doc_id
@@ -130,6 +152,9 @@ class ChromaDB_VectorStore(VannaBase):
 
 
     def add_documentation(self, documentation: str, **kwargs) -> str:
+        if documentation is None or not documentation.strip():
+            return 
+        
         doc_type = "documentation"
         document = {
             "dataset": kwargs.get("dataset", "default"),
@@ -143,7 +168,7 @@ class ChromaDB_VectorStore(VannaBase):
         doc_id = f"{deterministic_uuid(doc_json)}-doc"
 
         # Add to collection with single document
-        self.sql_collection.add(
+        self.documentation_collection.add(
             documents=doc_json,
             embeddings=self.generate_embedding(doc_json),
             ids=doc_id
@@ -153,63 +178,83 @@ class ChromaDB_VectorStore(VannaBase):
 
     def get_training_data(self, **kwargs) -> pd.DataFrame:
         df = pd.DataFrame()
+        dataset = kwargs.get("dataset", "default")
+        # print(f"get_training_data(): dataset = {dataset}")
+        DEBUG_FLAG = False
+        try:
+            # get DDL metadata
+            ddl_data = self.ddl_collection.get()
+            if DEBUG_FLAG: print(f"1) ddl_data : {str(ddl_data)}")
+            if ddl_data is not None:
+                # Extract the documents and ids
+                ids, documents = filter_collection_by_dataset(dataset, ddl_data)
+                # documents = [doc for doc in ddl_data["documents"]]
+                # ids = ddl_data["ids"]
 
-        # get question/SQL pair
-        sql_data = self.sql_collection.get()
-        if sql_data is not None:
-            # Extract the documents and ids
-            documents = [json.loads(doc) for doc in sql_data["documents"]]
-            ids = sql_data["ids"]
+                if ids:
+                    # Create a DataFrame
+                    df_ddl = pd.DataFrame(
+                        {
+                            "id": ids,
+                            "dataset": [doc["dataset"] for doc in documents],
+                            "question": [None for doc in documents],
+                            "content": [doc["ddl"] for doc in documents],
+                        }
+                    )
+                    df_ddl["training_data_type"] = "ddl"
+                    df = pd.concat([df, df_ddl])
+        except Exception as e:
+            print(str(e))
 
-            # Create a DataFrame
-            df_sql = pd.DataFrame(
-                {
-                    "id": ids,
-                    "dataset": [doc["dataset"] for doc in documents],
-                    "question": [doc["question"] for doc in documents],
-                    "content": [doc["sql"] for doc in documents],
-                }
-            )
-            df_sql["training_data_type"] = "sql"
-            df = pd.concat([df, df_sql])
+        try:
+            # get question/SQL pair
+            sql_data = self.sql_collection.get()
+            if DEBUG_FLAG: print(f"2) sql_data : {str(sql_data)}")
+            if sql_data is not None:
+                # Extract the documents and ids
+                ids, documents = filter_collection_by_dataset(dataset, sql_data)
+                # documents = [json.loads(doc) for doc in sql_data["documents"]]
+                # ids = sql_data["ids"]
 
-        # get DDL metadata
-        ddl_data = self.ddl_collection.get()
-        if ddl_data is not None:
-            # Extract the documents and ids
-            documents = [doc for doc in ddl_data["documents"]]
-            ids = ddl_data["ids"]
+                if ids:
+                    # Create a DataFrame
+                    df_sql = pd.DataFrame(
+                        {
+                            "id": ids,
+                            "dataset": [doc["dataset"] for doc in documents],
+                            "question": [doc["question"] for doc in documents],
+                            "content": [doc["sql"] for doc in documents],
+                        }
+                    )
+                    df_sql["training_data_type"] = "sql"
+                    df = pd.concat([df, df_sql])
+        except Exception as e:
+            print(str(e))
 
-            # Create a DataFrame
-            df_ddl = pd.DataFrame(
-                {
-                    "id": ids,
-                    "dataset": [doc["dataset"] for doc in documents],
-                    "question": [None for doc in documents],
-                    "content": [doc["ddl"] for doc in documents],
-                }
-            )
-            df_ddl["training_data_type"] = "ddl"
-            df = pd.concat([df, df_ddl])
+        try:
+            # get bus_term metadata
+            doc_data = self.documentation_collection.get()
+            if DEBUG_FLAG: print(f"3) doc_data : {str(doc_data)}")
+            if doc_data is not None:
+                # Extract the documents and ids
+                ids, documents = filter_collection_by_dataset(dataset, doc_data)
+                # documents = [doc for doc in doc_data["documents"]]
+                # ids = doc_data["ids"]
 
-        # get bus_term metadata
-        doc_data = self.documentation_collection.get()
-        if doc_data is not None:
-            # Extract the documents and ids
-            documents = [doc for doc in doc_data["documents"]]
-            ids = doc_data["ids"]
-
-            # Create a DataFrame
-            df_doc = pd.DataFrame(
-                {
-                    "id": ids,
-                    "dataset": [doc["dataset"] for doc in documents],
-                    "question": [None for doc in documents],
-                    "content": [doc["documentation"] for doc in documents],
-                }
-            )
-            df_doc["training_data_type"] = "documentation"
-            df = pd.concat([df, df_doc])
+                if ids:
+                    # Create a DataFrame
+                    df_doc = pd.DataFrame(
+                        {
+                            "id": ids,
+                            "dataset": [doc["dataset"] for doc in documents],
+                            "question": [None for doc in documents],
+                            "content": [doc["documentation"] for doc in documents],
+                        }
+                    )
+                    df_doc["training_data_type"] = "documentation"
+                    df = pd.concat([df, df_doc])
+        except Exception as e:
+            print(str(e))
 
         return df
 
@@ -226,7 +271,7 @@ class ChromaDB_VectorStore(VannaBase):
         else:
             return False
 
-    def remove_collections(self, collection_name=None, ACCEPTED_TYPES = ["sql", "ddl", "documentation"]) -> bool:
+    def remove_collections(self, dataset, collection_name=None, ACCEPTED_TYPES = ["sql", "ddl", "documentation"]) -> bool:
         """
         This function is a wrapper to delete multiple collections
         """
@@ -245,12 +290,12 @@ class ChromaDB_VectorStore(VannaBase):
                 print(f"\t{c} is unknown: Skipped")
                 continue
                 
-            self.remove_collection(c)
+            self.remove_collection(c, dataset)
 
         return True
 
 
-    def remove_collection(self, collection_name: str) -> bool:
+    def remove_collection(self, collection_name: str, dataset: str) -> bool:
         """
         This function can reset the collection to empty state.
 
@@ -261,22 +306,34 @@ class ChromaDB_VectorStore(VannaBase):
             bool: True if collection is deleted, False otherwise
         """
         if collection_name == "sql":
-            self.chroma_client.delete_collection(name="sql")
+            # self.chroma_client.delete_collection(name="sql")
             self.sql_collection = self.chroma_client.get_or_create_collection(
                 name="sql", embedding_function=self.embedding_function
             )
+            sql_data = self.sql_collection.get()
+            ids, _ = filter_collection_by_dataset(dataset, sql_data)
+            for collection_id in ids:
+                self.remove_training_data(id=collection_id)
             return True
         elif collection_name == "ddl":
-            self.chroma_client.delete_collection(name="ddl")
+            # self.chroma_client.delete_collection(name="ddl")
             self.ddl_collection = self.chroma_client.get_or_create_collection(
                 name="ddl", embedding_function=self.embedding_function
             )
+            ddl_data = self.ddl_collection.get()
+            ids, _ = filter_collection_by_dataset(dataset, ddl_data)
+            for collection_id in ids:
+                self.remove_training_data(id=collection_id)
             return True
         elif collection_name == "documentation":
-            self.chroma_client.delete_collection(name="documentation")
+            # self.chroma_client.delete_collection(name="documentation")
             self.documentation_collection = self.chroma_client.get_or_create_collection(
                 name="documentation", embedding_function=self.embedding_function
             )
+            doc_data = self.documentation_collection.get()
+            ids, _ = filter_collection_by_dataset(dataset, doc_data)
+            for collection_id in ids:
+                self.remove_training_data(id=collection_id)
             return True
         else:
             return False
