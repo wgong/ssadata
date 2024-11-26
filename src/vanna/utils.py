@@ -166,3 +166,17 @@ def extract_sql(llm_response: str, **kwargs) -> str:
         return remove_sql_noise(sql)
     
     return llm_response
+
+def convert_to_string_list(df):
+    """ convert dataframe to row data list
+    """
+    result = []
+    for _, row in df.iterrows():
+        formatted_string = (
+            f"business_term : {row.get('business_term', '')}"
+            f"business_description : {row.get('business_description', '')}"
+            f"related_tables : {row.get('related_tables', '')}"
+            f"related_columns : {row.get('related_columns', '')}"
+        )
+        result.append(formatted_string)
+    return result

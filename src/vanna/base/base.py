@@ -2153,7 +2153,7 @@ class VannaBase(ABC):
 
             result_py = (plotly_code, ts_delta, "")
         except Exception as e:
-            err_msg_py = f"{LogTag.ERROR_VIZ} Failed to generate plotly code:\n str(e)"
+            err_msg_py = f"{LogTag.ERROR_VIZ} Failed to generate plotly code:\n {str(e)}"
             result_py = (None, ts_delta, err_msg_py)
             return AskResult(result_sql, result_df, result_py, None, True)
 

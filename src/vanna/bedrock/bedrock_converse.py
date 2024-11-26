@@ -151,7 +151,7 @@ class Bedrock_Chat(VannaBase):
                 user_query = prompt_message["content"]
 
 
-        body = json.dums({
+        body = json.dumps({
             "anthropic_version": "bedrock-2023-05-31",
             "temperature": self.temperature,
             "max_tokens": self.max_tokens, 
