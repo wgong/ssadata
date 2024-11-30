@@ -5,8 +5,6 @@ import json
 TEMPERATURE = 0.0
 MAX_TOKENS = 1000
 
-# , region="us-east-1"
-
 def create_bedrock_client():
     try:
         import boto3

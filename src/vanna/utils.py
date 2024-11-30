@@ -119,10 +119,10 @@ def convert_to_string_list(df):
     result = []
     for _, row in df.iterrows():
         formatted_string = (
-            f"business_term : {row['business_term']}; "
-            f"business_description : {row['business_description']}; "
-            f"related_tables : {row['related_tables']}; "
-            f"related_columns : {row['related_columns']}; "
+            f"business_term : {row.get('business_term', '')}; "
+            f"business_description : {row.get('business_description', '')}; "
+            f"related_tables : {row.get('related_tables', '')}; "
+            f"related_columns : {row.get('related_columns', '')}; "
         )
         result.append(formatted_string)
     return result
@@ -167,16 +167,9 @@ def extract_sql(llm_response: str, **kwargs) -> str:
     
     return llm_response
 
-def convert_to_string_list(df):
-    """ convert dataframe to row data list
-    """
-    result = []
-    for _, row in df.iterrows():
-        formatted_string = (
-            f"business_term : {row.get('business_term', '')}"
-            f"business_description : {row.get('business_description', '')}"
-            f"related_tables : {row.get('related_tables', '')}"
-            f"related_columns : {row.get('related_columns', '')}"
-        )
-        result.append(formatted_string)
-    return result
+
+def snake_case(s):
+    """Convert string to snake_case."""
+    s = re.sub(r'[^a-zA-Z0-9]', '_', s)
+    s = re.sub('([a-z0-9])([A-Z])', r'\1_\2', s)
+    return re.sub('_+', '_', s.lower()).strip('_')
