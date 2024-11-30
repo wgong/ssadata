@@ -25,6 +25,7 @@ def filter_collection_by_dataset(dataset, train_data):
         # print(f"doc_list = {doc_list}")
         for n, doc in enumerate(doc_list):
             dic = json.loads(doc)
+            if not dic: continue
             if dic.get("dataset", "") == dataset:
                 ids.append(id_list[n])
                 documents.append(dic)
@@ -176,15 +177,25 @@ class ChromaDB_VectorStore(VannaBase):
         
         return doc_id   
 
+    def search_tables_metadata(self,
+                            engine: str = None,
+                            catalog: str = None,
+                            schema: str = None,
+                            table_name: str = None,
+                            ddl: str = None,
+                            size: int = 10,
+                            **kwargs) -> list:
+        return []
+
     def get_training_data(self, **kwargs) -> pd.DataFrame:
         df = pd.DataFrame()
         dataset = kwargs.get("dataset", "default")
         # print(f"get_training_data(): dataset = {dataset}")
-        DEBUG_FLAG = False
+        DEBUG_FLAG = False # True
         try:
             # get DDL metadata
             ddl_data = self.ddl_collection.get()
-            if DEBUG_FLAG: print(f"1) ddl_data : {str(ddl_data)}")
+            if DEBUG_FLAG: print(f"\n1) ddl_data : {str(ddl_data)}")
             if ddl_data is not None:
                 # Extract the documents and ids
                 ids, documents = filter_collection_by_dataset(dataset, ddl_data)
@@ -209,7 +220,7 @@ class ChromaDB_VectorStore(VannaBase):
         try:
             # get question/SQL pair
             sql_data = self.sql_collection.get()
-            if DEBUG_FLAG: print(f"2) sql_data : {str(sql_data)}")
+            if DEBUG_FLAG: print(f"\n2) sql_data : {str(sql_data)}")
             if sql_data is not None:
                 # Extract the documents and ids
                 ids, documents = filter_collection_by_dataset(dataset, sql_data)
@@ -234,7 +245,7 @@ class ChromaDB_VectorStore(VannaBase):
         try:
             # get bus_term metadata
             doc_data = self.documentation_collection.get()
-            if DEBUG_FLAG: print(f"3) doc_data : {str(doc_data)}")
+            if DEBUG_FLAG: print(f"\n3) doc_data : {str(doc_data)}")
             if doc_data is not None:
                 # Extract the documents and ids
                 ids, documents = filter_collection_by_dataset(dataset, doc_data)

@@ -98,7 +98,7 @@ def suppress_warnings_only():
         sys.stderr = old_stderr
 
 from ..exceptions import DependencyError, ImproperlyConfigured, ValidationError
-from ..types import TrainingPlan, TrainingPlanItem
+from ..types import TrainingPlan, TrainingPlanItem, TableMetadata
 from ..utils import (
     SEPARATOR,
     vn_log,
@@ -423,6 +423,54 @@ class VannaBase(ABC):
 
         return llm_response
 
+    def extract_table_metadata(ddl: str) -> TableMetadata:
+      """
+        Example:
+        ```python
+        vn.extract_table_metadata("CREATE TABLE hive.bi_ads.customers (id INT, name TEXT, sales DECIMAL)")
+        ```
+
+        Extracts the table metadata from a DDL statement. This is useful in case the DDL statement contains other information besides the table metadata.
+        Override this function if your DDL statements need custom extraction logic.
+
+        Args:
+            ddl (str): The DDL statement.
+
+        Returns:
+            TableMetadata: The extracted table metadata.
+        """
+      pattern_with_catalog_schema = re.compile(
+        r'CREATE TABLE\s+(\w+)\.(\w+)\.(\w+)\s*\(',
+        re.IGNORECASE
+      )
+      pattern_with_schema = re.compile(
+        r'CREATE TABLE\s+(\w+)\.(\w+)\s*\(',
+        re.IGNORECASE
+      )
+      pattern_with_table = re.compile(
+        r'CREATE TABLE\s+(\w+)\s*\(',
+        re.IGNORECASE
+      )
+
+      match_with_catalog_schema = pattern_with_catalog_schema.search(ddl)
+      match_with_schema = pattern_with_schema.search(ddl)
+      match_with_table = pattern_with_table.search(ddl)
+
+      if match_with_catalog_schema:
+        catalog = match_with_catalog_schema.group(1)
+        schema = match_with_catalog_schema.group(2)
+        table_name = match_with_catalog_schema.group(3)
+        return TableMetadata(catalog, schema, table_name)
+      elif match_with_schema:
+        schema = match_with_schema.group(1)
+        table_name = match_with_schema.group(2)
+        return TableMetadata(None, schema, table_name)
+      elif match_with_table:
+        table_name = match_with_table.group(1)
+        return TableMetadata(None, None, table_name)
+      else:
+        return TableMetadata()
+
     def is_sql_valid(self, sql: str) -> bool:
         """
         Example:
@@ -605,6 +653,31 @@ class VannaBase(ABC):
 
         Returns:
             list: A list of related DDL statements.
+        """
+        pass
+
+    @abstractmethod
+    def search_tables_metadata(self,
+                              engine: str = None,
+                              catalog: str = None,
+                              schema: str = None,
+                              table_name: str = None,
+                              ddl: str = None,
+                              size: int = 10,
+                              **kwargs) -> list:
+        """
+        This method is used to get similar tables metadata.
+
+        Args:
+            engine (str): The database engine.
+            catalog (str): The catalog.
+            schema (str): The schema.
+            table_name (str): The table name.
+            ddl (str): The DDL statement.
+            size (int): The number of tables to return.
+
+        Returns:
+            list: A list of tables metadata.
         """
         pass
 
@@ -1038,14 +1111,20 @@ class VannaBase(ABC):
             None
         """
         # Path to save the downloaded database
-        path = os.path.basename(urlparse(url).path)
-        # Download the database if it doesn't exist
-        if not os.path.exists(path):
-            response = requests.get(url)
-            response.raise_for_status()  # Check that the request was successful
-            with open(path, "wb") as f:
-                f.write(response.content)
-            url = path
+        if url.startswith("http") or url.startswith("file"):
+            path = os.path.basename(urlparse(url).path)
+
+            # Download the database if it doesn't exist
+            if not os.path.exists(path):
+                response = requests.get(url)
+                response.raise_for_status()  # Check that the request was successful
+                with open(path, "wb") as f:
+                    f.write(response.content)
+                url = path
+        else:
+            if not os.path.exists(url):
+                raise FileNotFoundError(f"File not found: {url}")
+
 
         try:
             # Connect to the database
@@ -2176,6 +2255,7 @@ class VannaBase(ABC):
         question: str = None,
         sql: str = None,
         ddl: str = None,
+        engine: str = None,
         documentation: str = None,
         plan: TrainingPlan = None,
         dataset: str = "default",
@@ -2491,5 +2571,3 @@ class VannaBase(ABC):
             fig.update_layout(template="plotly_dark")
 
         return fig
-
-

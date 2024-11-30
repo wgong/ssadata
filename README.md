@@ -1,8 +1,8 @@
 
 
-| GitHub | PyPI | Documentation |
-| ------ | ---- | ------------- |
-| [![GitHub](https://img.shields.io/badge/GitHub-vanna-blue?logo=github)](https://github.com/vanna-ai/vanna) | [![PyPI](https://img.shields.io/pypi/v/vanna?logo=pypi)](https://pypi.org/project/vanna/) | [![Documentation](https://img.shields.io/badge/Documentation-vanna-blue?logo=read-the-docs)](https://vanna.ai/docs/) |
+| GitHub | PyPI | Documentation | Gurubase |
+| ------ | ---- | ------------- | -------- |
+| [![GitHub](https://img.shields.io/badge/GitHub-vanna-blue?logo=github)](https://github.com/vanna-ai/vanna) | [![PyPI](https://img.shields.io/pypi/v/vanna?logo=pypi)](https://pypi.org/project/vanna/) | [![Documentation](https://img.shields.io/badge/Documentation-vanna-blue?logo=read-the-docs)](https://vanna.ai/docs/) | [![Gurubase](https://img.shields.io/badge/Gurubase-Ask%20Vanna%20Guru-006BFF)](https://gurubase.io/g/vanna) |
 
 # Vanna
 Vanna is an MIT-licensed open-source Python RAG (Retrieval-Augmented Generation) framework for SQL generation and related functionality.
@@ -34,7 +34,6 @@ These are some of the user interfaces that we've built using Vanna. You can use 
 - [vanna-ai/vanna-streamlit](https://github.com/vanna-ai/vanna-streamlit)
 - [vanna-ai/vanna-flask](https://github.com/vanna-ai/vanna-flask)
 - [vanna-ai/vanna-slack](https://github.com/vanna-ai/vanna-slack)
-
 
 ## Supported LLMs
 
