@@ -907,6 +907,34 @@ class VannaBase(ABC):
 
         return message_log
 
+    def get_llm_prompt(
+        self,
+        question: str,
+        **kwargs,
+    ):
+        """
+        Example:
+        ```python
+        vn.get_llm_prompt(
+            question="What are the top 10 customers by sales?",
+        )
+
+        ```
+
+        This method is used to generate a prompt for the LLM to generate SQL.
+
+        Args:
+            question (str): The question to generate SQL for.
+
+        Returns:
+            any: The prompt for the LLM
+        """
+
+        initial_prompt = "You are an expert AI assistant, answer me the following question:\n"
+        message_log = [self.system_message(initial_prompt)]
+        message_log.append(self.user_message(question))
+        return message_log
+
     def get_followup_questions_prompt(
         self,
         question: str,
@@ -2239,14 +2267,15 @@ class VannaBase(ABC):
     def ask_llm(
         self,
         question: str,
-        print_prompt: bool = False,    # show prompt
-        print_response: bool = False,  # show response
+        print_prompt: bool = True,    # show prompt
+        print_response: bool = True,  # show response
     ) -> str:
         """
         Ask LLM model directly (no RAG)
         """
+        prompt = self.get_llm_prompt(question)
         vn_log(title=LogTag.SHOW_LLM, message=question, off_flag=not print_prompt)
-        llm_response = self.submit_prompt(prompt=question, print_prompt=print_prompt, print_response=print_response)
+        llm_response = self.submit_prompt(prompt=prompt, print_prompt=print_prompt, print_response=print_response)
         vn_log(title=LogTag.LLM_RESPONSE, message=llm_response, off_flag=not print_response)
         return llm_response
 
