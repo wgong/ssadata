@@ -19,7 +19,7 @@ class Ollama(VannaBase):
 
     if not config or 'model' not in config.keys():
       raise ValueError("config must contain at least Ollama model")
-
+    
     self.host = config.get("ollama_host", "http://localhost:11434")
     self.model = config.get("model", "llama3.1")  # use Llama3.1 as default
     if ":" not in self.model:
@@ -28,7 +28,17 @@ class Ollama(VannaBase):
     self.ollama_timeout = config.get("ollama_timeout", 240.0)
     self.ollama_client = ollama.Client(self.host, timeout=Timeout(self.ollama_timeout))
     self.keep_alive = config.get('keep_alive', None)
-    self.ollama_options = config.get('options', {})
+    self.ollama_options = {
+        'gpu' : config.get("gpu", True),          # Enable GPU
+        'num_ctx': config.get("num_ctx", 2048),   # Context window size
+        'top_p': config.get("top_p", 0.9),        # Nucleus sampling
+        'top_k': config.get("top_k", 40),         # Top tokens to sample
+        'seed': config.get("seed", 42),           # RNG seed
+        'stop': config.get("stop", ['STOP']),     # Stop sequences
+        'temperature' : config.get("temperature", 0.2),       # Creativity (0-1)
+        'repeat_penalty': config.get("repeat_penalty", 1.1),  # Repetition penalty
+        'num_predict': config.get("num_predict", 500),       # Max tokens to generate
+      }
     self.num_ctx = self.ollama_options.get('num_ctx', 2048)
     self.__pull_model_if_ne(self.ollama_client, self.model)
 
