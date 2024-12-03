@@ -105,28 +105,6 @@ def strip_brackets(ddl):
     pattern = r"\[([^\]]+)]"  # Match any character except ] within square brackets
     return re.sub(pattern, r"\1", ddl)
 
-def convert_to_string_list(df):
-    """
-    Convert dataframe to row-data list
-
-    Input:
-        df (dataframe) - contains business terms as additional metadata documentations,
-            It has 4 columns: [business_term, business_description, related_tables, related_columns]
-
-    Returns:
-        list of str
-    """
-    result = []
-    for _, row in df.iterrows():
-        formatted_string = (
-            f"business_term : {row.get('business_term', '')}; "
-            f"business_description : {row.get('business_description', '')}; "
-            f"related_tables : {row.get('related_tables', '')}; "
-            f"related_columns : {row.get('related_columns', '')}; "
-        )
-        result.append(formatted_string)
-    return result
-
 def remove_sql_noise(sql):
     if 'intermediate_sql' in sql or 'final_sql' in sql:
         sql = sql.replace('intermediate_sql', '').replace('final_sql', '')
@@ -167,6 +145,27 @@ def extract_sql(llm_response: str, **kwargs) -> str:
     
     return llm_response
 
+def convert_to_string_list(df):
+    """
+    Convert dataframe to row-data list
+
+    Input:
+        df (dataframe) - contains business terms as additional metadata documentations,
+            It has 4 columns: [business_term, business_description, related_tables, related_columns]
+
+    Returns:
+        list of str
+    """
+    result = []
+    for _, row in df.iterrows():
+        formatted_string = (
+            f"business_term : {row.get('business_term', '')}; "
+            f"business_description : {row.get('business_description', '')}; "
+            f"related_tables : {row.get('related_tables', '')}; "
+            f"related_columns : {row.get('related_columns', '')}; "
+        )
+        result.append(formatted_string)
+    return result
 
 def snake_case(s):
     """Convert string to snake_case."""
