@@ -98,7 +98,7 @@ def suppress_warnings_only():
         sys.stderr = old_stderr
 
 from ..exceptions import DependencyError, ImproperlyConfigured, ValidationError
-from ..types import TrainingPlan, TrainingPlanItem
+from ..types import TrainingPlan, TrainingPlanItem, TableMetadata
 from ..utils import (
     SEPARATOR,
     vn_log,
@@ -114,6 +114,8 @@ try:
 except Exception as e:
     print(f"Failed to import IPython: {str(e)}")
     HAS_IPYTHON = False
+
+PREFIX_MY = "my-"
 
 class AskResult(NamedTuple):
     sql: Optional[Tuple[Optional[str], float, Optional[str]]]
@@ -131,6 +133,7 @@ class LogTag:
     ERROR_VIZ = "[ERROR-VIZ]"
     CTX_PROMPT = "Context PROMPT"
     SQL_PROMPT = "SQL PROMPT"
+    SHOW_LLM = "<LLM>"
     SHOW_CXT = "<Context>"
     SHOW_DATA = "<DataFrame>"
     SHOW_SQL = "<SQL>"
@@ -420,6 +423,54 @@ class VannaBase(ABC):
 
         return llm_response
 
+    def extract_table_metadata(ddl: str) -> TableMetadata:
+      """
+        Example:
+        ```python
+        vn.extract_table_metadata("CREATE TABLE hive.bi_ads.customers (id INT, name TEXT, sales DECIMAL)")
+        ```
+
+        Extracts the table metadata from a DDL statement. This is useful in case the DDL statement contains other information besides the table metadata.
+        Override this function if your DDL statements need custom extraction logic.
+
+        Args:
+            ddl (str): The DDL statement.
+
+        Returns:
+            TableMetadata: The extracted table metadata.
+        """
+      pattern_with_catalog_schema = re.compile(
+        r'CREATE TABLE\s+(\w+)\.(\w+)\.(\w+)\s*\(',
+        re.IGNORECASE
+      )
+      pattern_with_schema = re.compile(
+        r'CREATE TABLE\s+(\w+)\.(\w+)\s*\(',
+        re.IGNORECASE
+      )
+      pattern_with_table = re.compile(
+        r'CREATE TABLE\s+(\w+)\s*\(',
+        re.IGNORECASE
+      )
+
+      match_with_catalog_schema = pattern_with_catalog_schema.search(ddl)
+      match_with_schema = pattern_with_schema.search(ddl)
+      match_with_table = pattern_with_table.search(ddl)
+
+      if match_with_catalog_schema:
+        catalog = match_with_catalog_schema.group(1)
+        schema = match_with_catalog_schema.group(2)
+        table_name = match_with_catalog_schema.group(3)
+        return TableMetadata(catalog, schema, table_name)
+      elif match_with_schema:
+        schema = match_with_schema.group(1)
+        table_name = match_with_schema.group(2)
+        return TableMetadata(None, schema, table_name)
+      elif match_with_table:
+        table_name = match_with_table.group(1)
+        return TableMetadata(None, None, table_name)
+      else:
+        return TableMetadata()
+
     def is_sql_valid(self, sql: str) -> bool:
         """
         Example:
@@ -602,6 +653,31 @@ class VannaBase(ABC):
 
         Returns:
             list: A list of related DDL statements.
+        """
+        pass
+
+    @abstractmethod
+    def search_tables_metadata(self,
+                              engine: str = None,
+                              catalog: str = None,
+                              schema: str = None,
+                              table_name: str = None,
+                              ddl: str = None,
+                              size: int = 10,
+                              **kwargs) -> list:
+        """
+        This method is used to get similar tables metadata.
+
+        Args:
+            engine (str): The database engine.
+            catalog (str): The catalog.
+            schema (str): The schema.
+            table_name (str): The table name.
+            ddl (str): The DDL statement.
+            size (int): The number of tables to return.
+
+        Returns:
+            list: A list of tables metadata.
         """
         pass
 
@@ -831,6 +907,34 @@ class VannaBase(ABC):
 
         return message_log
 
+    def get_llm_prompt(
+        self,
+        question: str,
+        **kwargs,
+    ):
+        """
+        Example:
+        ```python
+        vn.get_llm_prompt(
+            question="What are the top 10 customers by sales?",
+        )
+
+        ```
+
+        This method is used to generate a prompt for the LLM to generate SQL.
+
+        Args:
+            question (str): The question to generate SQL for.
+
+        Returns:
+            any: The prompt for the LLM
+        """
+
+        initial_prompt = "You are an expert AI assistant, answer me the following question:\n"
+        message_log = [self.system_message(initial_prompt)]
+        message_log.append(self.user_message(question))
+        return message_log
+
     def get_followup_questions_prompt(
         self,
         question: str,
@@ -958,6 +1062,11 @@ class VannaBase(ABC):
         warehouse: Union[str, None] = None,
         **kwargs
     ):
+        """ Connect to Snowflake Database
+        
+        If account/username/password/database startswith "my-", 
+            respective value is read from environ var
+        """
         try:
             snowflake = __import__("snowflake.connector")
         except ImportError:
@@ -965,47 +1074,37 @@ class VannaBase(ABC):
                 "You need to install required dependencies to execute this method, run command:"
                 " \npip install vanna[snowflake]"
             )
+        
+        if not username or username.startswith(PREFIX_MY):
+            username = os.getenv("SNOWFLAKE_USERNAME")
+            if not username:
+                raise ImproperlyConfigured("Please set SNOWFLAKE_USERNAME env.")
 
-        if username == "my-username":
-            username_env = os.getenv("SNOWFLAKE_USERNAME")
+        if not password or password.startswith(PREFIX_MY):
+            password = os.getenv("SNOWFLAKE_PASSWORD")
+            if not password:
+                raise ImproperlyConfigured("Please set SNOWFLAKE_PASSWORD env.")
 
-            if username_env is not None:
-                username = username_env
-            else:
-                raise ImproperlyConfigured("Please set your Snowflake username.")
+        if not account or account.startswith(PREFIX_MY):
+            account = os.getenv("SNOWFLAKE_ACCOUNT")
+            if not account:
+                raise ImproperlyConfigured("Please set SNOWFLAKE_ACCOUNT env.")
 
-        if password == "mypassword":
-            password_env = os.getenv("SNOWFLAKE_PASSWORD")
+        if not database or database.startswith(PREFIX_MY):
+            database = os.getenv("SNOWFLAKE_DATABASE")
+            if not database:
+                raise ImproperlyConfigured("Please set SNOWFLAKE_DATABASE env.")
 
-            if password_env is not None:
-                password = password_env
-            else:
-                raise ImproperlyConfigured("Please set your Snowflake password.")
-
-        if account == "my-account":
-            account_env = os.getenv("SNOWFLAKE_ACCOUNT")
-
-            if account_env is not None:
-                account = account_env
-            else:
-                raise ImproperlyConfigured("Please set your Snowflake account.")
-
-        if database == "my-database":
-            database_env = os.getenv("SNOWFLAKE_DATABASE")
-
-            if database_env is not None:
-                database = database_env
-            else:
-                raise ImproperlyConfigured("Please set your Snowflake database.")
-
-        conn = snowflake.connector.connect(
-            user=username,
-            password=password,
-            account=account,
-            database=database,
-            client_session_keep_alive=True,
-            **kwargs
-        )
+        try:
+            conn = snowflake.connector.connect(
+                    user=username,
+                    password=password,
+                    account=account,
+                    database=database,
+                    client_session_keep_alive=True,
+                    **kwargs)
+        except Exception as e:
+            raise ValidationError(f"connect_to_snowflake() failed:\n {str(e)}")
 
         def run_sql_snowflake(sql: str) -> pd.DataFrame:
             cs = conn.cursor()
@@ -1015,10 +1114,9 @@ class VannaBase(ABC):
 
             if warehouse is not None:
                 cs.execute(f"USE WAREHOUSE {warehouse}")
+
             cs.execute(f"USE DATABASE {database}")
-
             cur = cs.execute(sql)
-
             results = cur.fetchall()
 
             # Create a pandas dataframe from the results
@@ -1040,26 +1138,30 @@ class VannaBase(ABC):
         Returns:
             None
         """
-
-        # URL of the database to download
-
         # Path to save the downloaded database
-        path = os.path.basename(urlparse(url).path)
+        if url.startswith("http") or url.startswith("file"):
+            path = os.path.basename(urlparse(url).path)
 
-        # Download the database if it doesn't exist
-        if not os.path.exists(url):
-            response = requests.get(url)
-            response.raise_for_status()  # Check that the request was successful
-            with open(path, "wb") as f:
-                f.write(response.content)
-            url = path
+            # Download the database if it doesn't exist
+            if not os.path.exists(path):
+                response = requests.get(url)
+                response.raise_for_status()  # Check that the request was successful
+                with open(path, "wb") as f:
+                    f.write(response.content)
+                url = path
+        else:
+            if not os.path.exists(url):
+                raise FileNotFoundError(f"File not found: {url}")
 
-        # Connect to the database
-        conn = sqlite3.connect(
-            url,
-            check_same_thread=check_same_thread,
-            **kwargs
-        )
+
+        try:
+            # Connect to the database
+            conn = sqlite3.connect(
+                url,
+                check_same_thread=check_same_thread,
+                **kwargs)
+        except Exception as e:
+            raise ValidationError(f"connect_to_sqlite() failed:\n {str(e)}")
 
         def run_sql_sqlite(sql: str):
             return pd.read_sql_query(sql, conn)
@@ -1107,37 +1209,30 @@ class VannaBase(ABC):
                 " run command: \npip install vanna[postgres]"
             )
 
-        if not host:
-            host = os.getenv("HOST")
+        if not host or host.startswith(PREFIX_MY):
+            host = os.getenv("PG_HOST")
+            if not host:
+                raise ImproperlyConfigured("Please set PG_HOST env")
 
-        if not host:
-            raise ImproperlyConfigured("Please set your postgres host")
+        if not dbname or dbname.startswith(PREFIX_MY):
+            dbname = os.getenv("PG_DATABASE")
+            if not dbname:
+                raise ImproperlyConfigured("Please set PG_DATABASE env")
 
-        if not dbname:
-            dbname = os.getenv("DATABASE")
-
-        if not dbname:
-            raise ImproperlyConfigured("Please set your postgres database")
-
-        if not user:
+        if not user or user.startswith(PREFIX_MY):
             user = os.getenv("PG_USER")
+            if not user:
+                raise ImproperlyConfigured("Please set PG_USER env")
 
-        if not user:
-            raise ImproperlyConfigured("Please set your postgres user")
+        if not password or password.startswith(PREFIX_MY):
+            password = os.getenv("PG_PASSWORD")
+            if not password:
+                raise ImproperlyConfigured("Please set PG_PASSWORD env")
 
-        if not password:
-            password = os.getenv("PASSWORD")
-
-        if not password:
-            raise ImproperlyConfigured("Please set your postgres password")
-
-        if not port:
-            port = os.getenv("PORT")
-
-        if not port:
-            raise ImproperlyConfigured("Please set your postgres port")
-
-        conn = None
+        if not port or port.startswith(PREFIX_MY):
+            port = os.getenv("PG_PORT")
+            if not port:
+                raise ImproperlyConfigured("Please set PG_PORT env")
 
         try:
             conn = psycopg2.connect(
@@ -1146,14 +1241,18 @@ class VannaBase(ABC):
                 user=user,
                 password=password,
                 port=port,
-                **kwargs
-            )
+                **kwargs)
         except psycopg2.Error as e:
-            raise ValidationError(e)
+            raise ValidationError(f"connect_to_postgres() failed:\n {str(e)}")
 
         def psycopg2_connect():
-            return psycopg2.connect(host=host, dbname=dbname,
-                        user=user, password=password, port=port, **kwargs)
+            return psycopg2.connect(
+                        host=host, 
+                        dbname=dbname,
+                        user=user, 
+                        password=password, 
+                        port=port, 
+                        **kwargs)
 
 
         def run_sql_postgres(sql: str) -> Union[pd.DataFrame, None]:
@@ -1187,8 +1286,8 @@ class VannaBase(ABC):
                     raise ValidationError(e)
 
             except Exception as e:
-                        conn.rollback()
-                        raise e
+                conn.rollback()
+                raise e
 
         self.dialect = "PostgreSQL"
         self.run_sql_is_set = True
@@ -1213,50 +1312,43 @@ class VannaBase(ABC):
                 " run command: \npip install PyMySQL"
             )
 
-        if not host:
-            host = os.getenv("HOST")
+        if not host or host.startswith(PREFIX_MY):
+            host = os.getenv("MYSQL_HOST")
+            if not host:
+                raise ImproperlyConfigured("Please set MYSQL_HOST")
 
-        if not host:
-            raise ImproperlyConfigured("Please set your MySQL host")
+        if not dbname or dbname.startswith(PREFIX_MY):
+            dbname = os.getenv("MYSQL_DATABASE")
+            if not dbname:
+                raise ImproperlyConfigured("Please set MYSQL_DATABASE")
 
-        if not dbname:
-            dbname = os.getenv("DATABASE")
+        if not user or user.startswith(PREFIX_MY):
+            user = os.getenv("MYSQL_USER")
+            if not user:
+                raise ImproperlyConfigured("Please set MYSQL_USER")
 
-        if not dbname:
-            raise ImproperlyConfigured("Please set your MySQL database")
+        if not password or password.startswith(PREFIX_MY):
+            password = os.getenv("MYSQL_PASSWORD")
+            if not password:
+                raise ImproperlyConfigured("Please set MYSQL_PASSWORD")
 
-        if not user:
-            user = os.getenv("USER")
-
-        if not user:
-            raise ImproperlyConfigured("Please set your MySQL user")
-
-        if not password:
-            password = os.getenv("PASSWORD")
-
-        if not password:
-            raise ImproperlyConfigured("Please set your MySQL password")
-
-        if not port:
-            port = os.getenv("PORT")
-
-        if not port:
-            raise ImproperlyConfigured("Please set your MySQL port")
+        if not port or port.startswith(PREFIX_MY):
+            port = os.getenv("MYSQL_PORT")
+            if not port:
+                raise ImproperlyConfigured("Please set MYSQL_PORT")
 
         conn = None
-
         try:
             conn = pymysql.connect(
-                host=host,
-                user=user,
-                password=password,
-                database=dbname,
-                port=port,
-                cursorclass=pymysql.cursors.DictCursor,
-                **kwargs
-            )
+                    host=host,
+                    user=user,
+                    password=password,
+                    database=dbname,
+                    port=port,
+                    cursorclass=pymysql.cursors.DictCursor,
+                    **kwargs)
         except pymysql.Error as e:
-            raise ValidationError(e)
+            raise ValidationError(f"connect_to_mysql() failed:\n {str(e)}")
 
         def run_sql_mysql(sql: str) -> Union[pd.DataFrame, None]:
             if conn:
@@ -1302,50 +1394,43 @@ class VannaBase(ABC):
                 " run command: \npip install clickhouse_connect"
             )
 
-        if not host:
-            host = os.getenv("HOST")
+        if not host or host.startswith(PREFIX_MY):
+            host = os.getenv("CLICKHOUSE_HOST")
+            if not host:
+                raise ImproperlyConfigured("Please set CLICKHOUSE_HOST")
 
-        if not host:
-            raise ImproperlyConfigured("Please set your ClickHouse host")
+        if not dbname or dbname.startswith(PREFIX_MY):
+            dbname = os.getenv("CLICKHOUSE_DATABASE")
+            if not dbname:
+                raise ImproperlyConfigured("Please set CLICKHOUSE_DATABASE")
 
-        if not dbname:
-            dbname = os.getenv("DATABASE")
+        if not user or user.startswith(PREFIX_MY):
+            user = os.getenv("CLICKHOUSE_USER")
+            if not user:
+                raise ImproperlyConfigured("Please set CLICKHOUSE_USER")
 
-        if not dbname:
-            raise ImproperlyConfigured("Please set your ClickHouse database")
+        if not password or password.startswith(PREFIX_MY):
+            password = os.getenv("CLICKHOUSE_PASSWORD")
+            if not password:
+                raise ImproperlyConfigured("Please set CLICKHOUSE_PASSWORD")
 
-        if not user:
-            user = os.getenv("USER")
-
-        if not user:
-            raise ImproperlyConfigured("Please set your ClickHouse user")
-
-        if not password:
-            password = os.getenv("PASSWORD")
-
-        if not password:
-            raise ImproperlyConfigured("Please set your ClickHouse password")
-
-        if not port:
-            port = os.getenv("PORT")
-
-        if not port:
-            raise ImproperlyConfigured("Please set your ClickHouse port")
+        if not port or port.startswith(PREFIX_MY):
+            port = os.getenv("CLICKHOUSE_PORT")
+            if not port:
+                raise ImproperlyConfigured("Please set CLICKHOUSE_PORT")
 
         conn = None
-
         try:
             conn = clickhouse_connect.get_client(
-                host=host,
-                port=port,
-                username=user,
-                password=password,
-                database=dbname,
-                **kwargs
-            )
+                    host=host,
+                    port=port,
+                    username=user,
+                    password=password,
+                    database=dbname,
+                    **kwargs)
             print(conn)
         except Exception as e:
-            raise ValidationError(e)
+            raise ValidationError(f"connect_to_clickhouse() failed:\n {str(e)}")
 
         def run_sql_clickhouse(sql: str) -> Union[pd.DataFrame, None]:
             if conn:
@@ -1391,29 +1476,25 @@ class VannaBase(ABC):
         try:
             import oracledb
         except ImportError:
-
             raise DependencyError(
                 "You need to install required dependencies to execute this method,"
                 " run command: \npip install oracledb"
             )
 
-        if not dsn:
-            dsn = os.getenv("DSN")
+        if not dsn or dsn.startswith(PREFIX_MY):
+            dsn = os.getenv("ORACLE_DSN")
+            if not dsn:
+                raise ImproperlyConfigured("Please set ORACLE_DSN (host:port/sid)")
 
-        if not dsn:
-            raise ImproperlyConfigured("Please set your Oracle dsn which should include host:port/sid")
+        if not user or user.startswith(PREFIX_MY):
+            user = os.getenv("ORACLE_USER")
+            if not user:
+                raise ImproperlyConfigured("Please set ORACLE_USER")
 
-        if not user:
-            user = os.getenv("USER")
-
-        if not user:
-            raise ImproperlyConfigured("Please set your Oracle db user")
-
-        if not password:
-            password = os.getenv("PASSWORD")
-
-        if not password:
-            raise ImproperlyConfigured("Please set your Oracle db password")
+        if not password or password.startswith(PREFIX_MY):
+            password = os.getenv("ORACLE_PASSWORD")
+            if not password:
+                raise ImproperlyConfigured("Please set ORACLE_PASSWORD")
 
         conn = None
 
@@ -1422,10 +1503,9 @@ class VannaBase(ABC):
                 user=user,
                 password=password,
                 dsn=dsn,
-                **kwargs
-            )
+                **kwargs)
         except oracledb.Error as e:
-            raise ValidationError(e)
+            raise ValidationError(f"connect_to_oracle() failed:\n {str(e)}")
 
         def run_sql_oracle(sql: str) -> Union[pd.DataFrame, None]:
             if conn:
@@ -1486,11 +1566,10 @@ class VannaBase(ABC):
                 " \npip install vanna[bigquery]"
             )
 
-        if not project_id:
-            project_id = os.getenv("PROJECT_ID")
-
-        if not project_id:
-            raise ImproperlyConfigured("Please set your Google Cloud Project ID.")
+        if not project_id or project_id.startswith(PREFIX_MY):
+            project_id = os.getenv("GOOGLE_PROJECT_ID")
+            if not project_id:
+                raise ImproperlyConfigured("Please set GOOGLE_PROJECT_ID: Google Cloud Project ID.")
 
         import sys
 
@@ -1526,8 +1605,7 @@ class VannaBase(ABC):
                 conn = bigquery.Client(
                     project=project_id,
                     credentials=credentials,
-                    **kwargs
-                )
+                    **kwargs )
             except:
                 raise ImproperlyConfigured(
                     "Could not connect to bigquery please correct credentials"
@@ -1581,10 +1659,13 @@ class VannaBase(ABC):
                     with open(path, "wb") as f:
                         f.write(response.content)
 
-        # Connect to the database
-        conn = duckdb.connect(path, **kwargs)
-        if init_sql:
-            conn.query(init_sql)
+        try:
+            # Connect to the database
+            conn = duckdb.connect(path, **kwargs)
+            if init_sql:
+                conn.query(init_sql)
+        except Exception as e:
+            raise ValidationError(f"connect_to_duckdb() failed:\n {str(e)}") 
 
         def run_sql_duckdb(sql: str):
             return conn.query(sql).to_df()
@@ -1603,6 +1684,11 @@ class VannaBase(ABC):
         Returns:
             None
         """
+        if not odbc_conn_str or odbc_conn_str.startswith(PREFIX_MY):
+            odbc_conn_str = os.getenv("MSSQL_ODBC_CONN_STR")
+            if not odbc_conn_str:
+                raise ImproperlyConfigured("Please set MSSQL_ODBC_CONN_STR env.")
+
         try:
             import pyodbc
         except ImportError:
@@ -1626,7 +1712,10 @@ class VannaBase(ABC):
 
         from sqlalchemy import create_engine
 
-        engine = create_engine(connection_url, **kwargs)
+        try:
+            engine = create_engine(connection_url, **kwargs)
+        except Exception as e:
+            raise ValidationError(f"connect_to_mssql() failed:\n {str(e)}")
 
         def run_sql_mssql(sql: str):
             # Execute the SQL statement and return the result as a pandas DataFrame
@@ -1683,32 +1772,30 @@ class VannaBase(ABC):
           " run command: \npip install pyhive"
         )
 
-      if not host:
-        host = os.getenv("PRESTO_HOST")
+      if not host or port.startswith(PREFIX_MY):
+          host = os.getenv("PRESTO_HOST")
+          if not host:
+            raise ImproperlyConfigured("Please set PRESTO_HOST")
 
-      if not host:
-        raise ImproperlyConfigured("Please set your presto host")
-
-      if not catalog:
+      if not catalog or port.startswith(PREFIX_MY):
         catalog = os.getenv("PRESTO_CATALOG")
+        if not catalog:
+          raise ImproperlyConfigured("Please set PRESTO_CATALOG")
 
-      if not catalog:
-        raise ImproperlyConfigured("Please set your presto catalog")
-
-      if not user:
+      if not user or user.startswith(PREFIX_MY):
         user = os.getenv("PRESTO_USER")
+        if not user:
+          raise ImproperlyConfigured("Please set PRESTO_USER")
 
-      if not user:
-        raise ImproperlyConfigured("Please set your presto user")
-
-      if not password:
+      if not password or password.startswith(PREFIX_MY):
         password = os.getenv("PRESTO_PASSWORD")
+        if not password:
+          raise ImproperlyConfigured("Please set PRESTO_PASSWORD")
 
-      if not port:
+      if not port or port.startswith(PREFIX_MY):
         port = os.getenv("PRESTO_PORT")
-
-      if not port:
-        raise ImproperlyConfigured("Please set your presto port")
+        if not port:
+          raise ImproperlyConfigured("Please set PRESTO_PORT")
 
       conn = None
 
@@ -1728,7 +1815,7 @@ class VannaBase(ABC):
                                  requests_kwargs=requests_kwargs,
                                  **kwargs)
       except presto.Error as e:
-        raise ValidationError(e)
+        raise ValidationError(f"connect_to_presto() failed:\n {str(e)}")
 
       def run_sql_presto(sql: str) -> Union[pd.DataFrame, None]:
         if conn:
@@ -1771,7 +1858,6 @@ class VannaBase(ABC):
     ):
       """
         Connect to a Hive database. This is just a helper function to set [`vn.run_sql`][vanna.base.base.VannaBase.run_sql]
-        Connect to a Hive database. This is just a helper function to set [`vn.run_sql`][vanna.base.base.VannaBase.run_sql]
 
         Args:
             host (str): The host of the Hive database.
@@ -1793,32 +1879,30 @@ class VannaBase(ABC):
           " run command: \npip install pyhive"
         )
 
-      if not host:
+      if not host or host.startswith(PREFIX_MY):
         host = os.getenv("HIVE_HOST")
+        if not host:
+          raise ImproperlyConfigured("Please set HIVE_HOST")
 
-      if not host:
-        raise ImproperlyConfigured("Please set your hive host")
-
-      if not dbname:
+      if not dbname or dbname.startswith(PREFIX_MY):
         dbname = os.getenv("HIVE_DATABASE")
+        if not dbname:
+          raise ImproperlyConfigured("Please set HIVE_DATABASE")
 
-      if not dbname:
-        raise ImproperlyConfigured("Please set your hive database")
-
-      if not user:
+      if not user or user.startswith(PREFIX_MY):
         user = os.getenv("HIVE_USER")
+        if not user:
+          raise ImproperlyConfigured("Please set HIVE_USER")
 
-      if not user:
-        raise ImproperlyConfigured("Please set your hive user")
-
-      if not password:
+      if not password or password.startswith(PREFIX_MY):
         password = os.getenv("HIVE_PASSWORD")
-
-      if not port:
+        if not password:
+          raise ImproperlyConfigured("Please set HIVE_PASSWORD")
+    
+      if not port or port.startswith(PREFIX_MY):
         port = os.getenv("HIVE_PORT")
-
-      if not port:
-        raise ImproperlyConfigured("Please set your hive port")
+        if not port:
+          raise ImproperlyConfigured("Please set HIVE_PORT")
 
       conn = None
 
@@ -1830,7 +1914,7 @@ class VannaBase(ABC):
                                port=port,
                                auth=auth)
       except hive.Error as e:
-        raise ValidationError(e)
+        raise ValidationError(f"connect_to_hive() failed:\n {str(e)}")
 
       def run_sql_hive(sql: str) -> Union[pd.DataFrame, None]:
         if conn:
@@ -1873,7 +1957,7 @@ class VannaBase(ABC):
             pd.DataFrame: The results of the SQL query.
         """
         raise Exception(
-            "You need to connect to a database first by running vn.connect_to_snowflake(), vn.connect_to_postgres(), similar function, or manually set vn.run_sql"
+            "You need to connect to a database first before running vn.connect_to_snowflake(), vn.connect_to_postgres(), similar function, or manually set vn.run_sql"
         )
 
 
@@ -2051,6 +2135,7 @@ class VannaBase(ABC):
         # Generate SQL
         # ====================
         err_msg_sql = ""
+        ts_delta = 0.0
         try:
             ts_1 = time.time()
             sql = self.generate_sql(question=question, allow_llm_to_see_data=allow_llm_to_see_data, print_prompt=print_prompt, print_response=print_response, use_latest_message=use_latest_message)
@@ -2084,6 +2169,7 @@ class VannaBase(ABC):
         # Execute SQL
         # ====================
         err_msg_df = ""
+        ts_delta = 0.0
         if self.run_sql_is_set is False:
             err_msg_df = f"{LogTag.ERROR} If you want to run the SQL query, connect to a database first. See here: https://vanna.ai/docs/databases.html"
             print(err_msg_df)
@@ -2134,6 +2220,7 @@ class VannaBase(ABC):
         # Visualize dataframe
         # ====================
         err_msg_py = ""
+        ts_delta = 0.0
         try:
             ts_1 = time.time()
             plotly_code = self.generate_plotly_code(
@@ -2150,11 +2237,12 @@ class VannaBase(ABC):
 
             result_py = (plotly_code, ts_delta, "")
         except Exception as e:
-            err_msg_py = f"{LogTag.ERROR_VIZ} Failed to generate plotly code:\n str(e)"
-            result_py = (None, 0.0, err_msg_py)
+            err_msg_py = f"{LogTag.ERROR_VIZ} Failed to generate plotly code:\n {str(e)}"
+            result_py = (None, ts_delta, err_msg_py)
             return AskResult(result_sql, result_df, result_py, None, True)
 
         err_msg_fig = ""
+        ts_delta = 0.0
         try:
             ts_1 = time.time()
             fig = self.get_plotly_figure(plotly_code=plotly_code, df=df)
@@ -2169,20 +2257,37 @@ class VannaBase(ABC):
             result_fig = (fig, ts_delta, "")
         except Exception as e:
             err_msg_fig = f"{LogTag.ERROR_VIZ} Failed to visualize df with plotly:\n str(e)"
-            result_fig = (None, 0.0, err_msg_fig)
+            result_fig = (None, ts_delta, err_msg_fig)
             return AskResult(result_sql, result_df, result_py, result_fig, True)
 
         # final return
         has_error = True if any((err_msg_sql, err_msg_df, err_msg_py, err_msg_fig)) else False
         return AskResult(result_sql, result_df, result_py, result_fig, has_error)
 
+    def ask_llm(
+        self,
+        question: str,
+        print_prompt: bool = True,    # show prompt
+        print_response: bool = True,  # show response
+    ) -> str:
+        """
+        Ask LLM model directly (no RAG)
+        """
+        prompt = self.get_llm_prompt(question)
+        vn_log(title=LogTag.SHOW_LLM, message=question, off_flag=not print_prompt)
+        llm_response = self.submit_prompt(prompt=prompt, print_prompt=print_prompt, print_response=print_response)
+        vn_log(title=LogTag.LLM_RESPONSE, message=llm_response, off_flag=not print_response)
+        return llm_response
+
     def train(
         self,
         question: str = None,
         sql: str = None,
         ddl: str = None,
+        engine: str = None,
         documentation: str = None,
         plan: TrainingPlan = None,
+        dataset: str = "default",
     ) -> str:
         """
         **Example:**
@@ -2204,32 +2309,28 @@ class VannaBase(ABC):
             documentation (str): The documentation to train on.
             plan (TrainingPlan): The training plan to train on.
         """
-
-        if question and not sql:
-            raise ValidationError("Please also provide a SQL query")
+        DEBUG_FLAG=False
+        if ddl:
+            if DEBUG_FLAG: print("\n\nAdding ddl:", ddl)
+            return self.add_ddl(strip_brackets(ddl), dataset=dataset)
 
         if documentation:
-            print("Adding documentation....")
-            return self.add_documentation(documentation)
+            if DEBUG_FLAG: print("\n\nAdding documentation....")
+            return self.add_documentation(documentation, dataset=dataset)
 
-        if sql:
-            if question is None:
-                question = self.generate_question(sql)
-                print("Question generated with sql:", question, "\nAdding SQL...")
-            return self.add_question_sql(question=question, sql=sql)
-
-        if ddl:
-            print("Adding ddl:", ddl)
-            return self.add_ddl(strip_brackets(ddl))
+        if question and sql:
+            if DEBUG_FLAG: print("\n\nAdding question/sql pair ....")
+            return self.add_question_sql(question=question, sql=sql, dataset=dataset)
 
         if plan:
+            if DEBUG_FLAG: print("\n\nAdding plan ....")
             for item in plan._plan:
                 if item.item_type == TrainingPlanItem.ITEM_TYPE_DDL:
-                    self.add_ddl(item.item_value)
+                    self.add_ddl(item.item_value, dataset=dataset)
                 elif item.item_type == TrainingPlanItem.ITEM_TYPE_IS:
-                    self.add_documentation(item.item_value)
+                    self.add_documentation(item.item_value, dataset=dataset)
                 elif item.item_type == TrainingPlanItem.ITEM_TYPE_SQL:
-                    self.add_question_sql(question=item.item_name, sql=item.item_value)
+                    self.add_question_sql(question=item.item_name, sql=item.item_value, dataset=dataset)
 
     def _get_databases(self) -> List[str]:
         try:
@@ -2499,5 +2600,3 @@ class VannaBase(ABC):
             fig.update_layout(template="plotly_dark")
 
         return fig
-
-

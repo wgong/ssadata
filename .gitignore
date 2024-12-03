@@ -24,4 +24,3 @@ chroma.sqlite3
 .coverage.*
 milvus.db
 .milvus.db.lock
-

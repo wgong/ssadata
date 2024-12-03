@@ -14,11 +14,11 @@ class GoogleGeminiChat(VannaBase):
         if "temperature" in config:
             self.temperature = config["temperature"]
 
-        model = DEFAULT_MODEL
+        model_name = DEFAULT_MODEL
         if "model" in config:
-            model = config["model"]
+            model_name = config["model"]
         if "model_name" in config:
-            model = config["model_name"]
+            model_name = config["model_name"]
 
         self.google_api_key = None
 
@@ -33,11 +33,11 @@ class GoogleGeminiChat(VannaBase):
             import google.generativeai as genai
 
             genai.configure(api_key=api_key)
-            self.chat_model = genai.GenerativeModel(model)
+            self.chat_model = genai.GenerativeModel(model_name)
         else:
             # Authenticate using VertexAI
-            from vertexai.preview.generative_models import GenerativeModel
-            self.chat_model = GenerativeModel(model)
+            from vertexai.generative_models import GenerativeModel
+            self.chat_model = GenerativeModel(model_name)
 
     def system_message(self, message: str) -> any:
         return message
