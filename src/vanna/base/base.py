@@ -374,8 +374,14 @@ class VannaBase(ABC):
                 except Exception as e:
                     return f"Error running intermediate SQL: {e}"
 
+        extracted_sql = self.extract_sql(llm_response).strip()
+        sql_row_limit = int(kwargs.get("sql_row_limit", -1))
+        if sql_row_limit > 0 and "limit " not in extracted_sql.lower():
+            if extracted_sql[-1] == ";":
+                extracted_sql = extracted_sql[:-1]  # remove last ";" if present
+            extracted_sql += f" limit {sql_row_limit}"
 
-        return self.extract_sql(llm_response)
+        return extracted_sql
 
     def extract_sql(self, llm_response: str) -> str:
         """
@@ -869,8 +875,12 @@ class VannaBase(ABC):
         """
 
         if initial_prompt is None:
-            initial_prompt = f"You are a {self.dialect} SQL Database expert. " + \
-            "Please help to generate a SQL query to answer the question. Your response should ONLY be based on the given context and follow the response guidelines and format instructions. "
+            initial_prompt = f"""
+                You are a {self.dialect} SQL Database expert. 
+                Please help to generate a SQL query to answer the question. 
+                The generated SQL should use single-quotes when dealing with literal value.
+                Your response should ONLY be based on the given context and follow the response guidelines and format instructions. 
+            """
 
         initial_prompt = self.add_ddl_to_prompt(
             initial_prompt, ddl_list, max_tokens=self.max_tokens
@@ -2178,10 +2188,10 @@ class VannaBase(ABC):
 
         # append limit-clause 
         sql = sql.strip()
-        if "limit" not in sql.lower() and sql_row_limit > 0:
+        if sql_row_limit > 0 and "limit " not in sql.lower():
             if sql[-1] == ";":
                 sql = sql[:-1]  # remove last ";" if present
-            sql += f" LIMIT {sql_row_limit}"
+            sql += f" limit {sql_row_limit}"
 
         try:
             ts_1 = time.time()
