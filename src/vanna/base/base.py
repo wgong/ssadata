@@ -1037,7 +1037,7 @@ class VannaBase(ABC):
         return plotly_code
 
     def generate_plotly_code(
-        self, question: str = None, sql: str = None, df_metadata: str = None, **kwargs
+        self, question: str = None, sql: str = None, df_metadata: str = None, max_rows: int = 20, **kwargs
     ) -> str:
         if question is not None:
             system_msg = f"The following is a pandas DataFrame that contains the results of the query that answers the question the user asked: '{question}'"
@@ -1051,8 +1051,15 @@ class VannaBase(ABC):
 
         message_log = [
             self.system_message(system_msg),
-            self.user_message(
-                "Can you generate the Python plotly code to chart the results of the dataframe? Assume the data is in a pandas dataframe called 'df'. If there is only one value in the dataframe, use an Indicator. Respond with only Python code. Do not answer with any explanations -- just the code."
+            self.user_message(f"""
+                Can you generate the Python plotly code to chart the results of the dataframe? 
+                Assume the data is in a pandas dataframe called 'df'. 
+                If the dataframe has more than {max_rows} rows, 
+                use 'df.head({max_rows})' to limit the data.
+                If there is only one value in the dataframe, use an Indicator. 
+                Respond with only Python code. 
+                Do not answer with any explanations -- just the code.
+                """
             ),
         ]
 
@@ -2237,6 +2244,7 @@ class VannaBase(ABC):
                 question=question,
                 sql=sql,
                 df_metadata=f"Running df.dtypes gives:\n {df.dtypes}",
+                max_rows=sql_row_limit,
             )
             ts_2 = time.time()
             ts_delta = ts_2 - ts_1
@@ -2253,22 +2261,25 @@ class VannaBase(ABC):
 
         err_msg_fig = ""
         ts_delta = 0.0
-        try:
-            ts_1 = time.time()
-            fig = self.get_plotly_figure(plotly_code=plotly_code, df=df)
-            ts_2 = time.time()
-            ts_delta = ts_2 - ts_1
+        df_size = df.shape[0]
+        if df_size > 0:
+            try:
+                ts_1 = time.time()
+                max_rows = min(df_size, sql_row_limit)
+                fig = self.get_plotly_figure(plotly_code=plotly_code, df=df.head(max_rows))
+                ts_2 = time.time()
+                ts_delta = ts_2 - ts_1
 
-            if HAS_IPYTHON and print_results:
-                img_bytes = fig.to_image(format="png", scale=2)               
-                display(Image(img_bytes))
-                # fig.show()
+                if HAS_IPYTHON and print_results:
+                    img_bytes = fig.to_image(format="png", scale=2)               
+                    display(Image(img_bytes))
+                    # fig.show()
 
-            result_fig = (fig, ts_delta, "")
-        except Exception as e:
-            err_msg_fig = f"{LogTag.ERROR_VIZ} Failed to visualize df with plotly:\n str(e)"
-            result_fig = (None, ts_delta, err_msg_fig)
-            return AskResult(result_sql, result_df, result_py, result_fig, True)
+                result_fig = (fig, ts_delta, "")
+            except Exception as e:
+                err_msg_fig = f"{LogTag.ERROR_VIZ} Failed to visualize df with plotly:\n str(e)"
+                result_fig = (None, ts_delta, err_msg_fig)
+                return AskResult(result_sql, result_df, result_py, result_fig, True)
 
         # final return
         has_error = True if any((err_msg_sql, err_msg_df, err_msg_py, err_msg_fig)) else False
